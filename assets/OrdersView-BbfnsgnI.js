@@ -1,0 +1,1 @@
+import{_ as e}from"./OrderListView.vue_vue_type_script_setup_true_lang-DsL3dPnk.js";import{d as o,g as r,o as t}from"./index-DDefJN_B.js";import"./orders-DAiJ5jbI.js";import"./format-SrvP2snb.js";const i=o({__name:"OrdersView",setup(a){return(m,n)=>(t(),r(e,{admin:""}))}});export{i as default};
