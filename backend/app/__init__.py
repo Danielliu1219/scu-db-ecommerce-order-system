@@ -1,0 +1,1 @@
+"""SCU course ecommerce application."""

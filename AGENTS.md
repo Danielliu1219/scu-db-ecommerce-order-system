@@ -1,101 +1,85 @@
 # AGENTS.md
 
-本文件面向后续接手本仓库的 Agent / 组员。先读 `PROJECT_LOG.md`，再读本文件。
+先读`PROJECT_LOG.md`中的2026年11月9日及2026年11月13日记录，再读本文件；编码工作以`docs/03-database-design.md`为实现契约。
 
-## 1. 项目上下文
+已确认实施清单与当前进度统一保存在`docs/04-implementation.md`。接手编码时再读该文件和日志最新记录；不另建重复计划或交接文档。每个FR结束更新清单，每三项FR及交付前检查过期临时材料和重复说明，冻结材料及历史日志不自动删除。
 
-- 课程：四川大学《数据库系统原理》课程设计（2026）
-- 选题：给定方案一，电商订单管理系统
-- 当前阶段：M1 立项材料已完成；M2—M6 尚未开始
-- 课程截止：2026-11-12 23:59（立项材料）
-- 角色：游客、普通用户、管理员
-- 功能：9 个（FR-01 ~ FR-09）
-- 数据表：11 张（`users`、`address`、`category`、`product`、`inventory`、`inventory_log`、`cart`、`cart_item`、`orders`、`order_item`、`payment`）
-- 技术路线（建议）：Vue 3 + Element Plus / FastAPI + SQLAlchemy 2.0 / MySQL 8.0 / JWT
+## 当前任务
 
-## 2. 事实源（Source of Truth）
+- 四川大学《数据库系统原理》课程设计，方案一“电商订单管理系统”，普通用户和管理员两个角色，共9项功能。
+- 课程报告已交付并冻结：`deliverables/第20组_电商订单管理系统_课程报告.docx`（30页、15幅纯黑白图）。报告文字、图表、封面身份信息及`references/`只读；确需改动先取得用户明确指示。
+- 当前进入编码实现阶段。范围为FR-01至FR-09的业务接口、九张表、核心事务、三类统计及Vue 3页面；此前项目名称、项目描述和功能清单作为已确认参考。
+- 实现契约是`docs/03-database-design.md`。表结构、DDL、索引、并发控制、状态与时间戳、三个核心事务、四条统计SQL和FR接口清单均以该文件为准，不再另写实施计划。
+- 技术栈固定为Python 3.11+、FastAPI、SQLAlchemy 2.x、MySQL 8.0、Vue 3、Element Plus。本机MySQL80服务默认停止，启动数据库前先确认端口与账号。
+- 验收按本科大三课程设计把握：系统可运行、可演示，关键约束有测试；不引入微服务、消息队列等额外架构。
+- 报告中的设计假设、限制和待确认说明仍写在`Limitation.md`，不放入报告正文。
+- 用户明确要求自行提交。Git提交、推送及课程平台提交均须遵循用户后续明确指示，默认不commit、不push。
+- 2026年11月14日用户后续允许使用既有GitHub仓库托管代码。本轮应用代码、测试及必要设计/运行文档使用`codex/`实现分支；既有报告交付物改动保留本地，课程平台仍由用户自行提交。
 
-优先级从高到低：
+## 事实来源
 
-1. `scripts/data.py`：项目、角色、功能、表、规则、SQL 任务、技术栈、计划。
-2. `docs/00-course-requirements.md`：课程要求整理。
-3. `PROJECT_LOG.md`：决策、时间线、当前状态。
-4. `README.md`：对外说明。
-5. `docs/01-requirements.md`、`docs/02-database-design.md`：由脚本生成，不要手改。
+1. 当前用户指示。
+2. `references/`中的教师原件，保持原件完整。
+3. `scripts/data.py`中的本次内容源。
+4. `docs/00-course-requirements.md`中的教师要求整理。
+5. `docs/01-requirements.md`和交付文件，由内容源生成。
+6. `docs/03-database-design.md`中的表结构、DDL、并发控制、事务、SQL和接口，是编码阶段的实现契约。
 
-> 如果文档与 `scripts/data.py` 不一致，以 `scripts/data.py` 为准，并重新生成文档。
+课程报告文字保存在`docs/02-course-report.md`，复用`data.py`中九项功能的名称、描述、约束及输入处理输出；概念设计以该报告文字为准。`references/`中用户新增的立项Word和功能清单Excel同样保持原样。
 
-## 3. 生成物与脚本
+`PROJECT_LOG.md`中2026年11月8日的记录保留为历史，其中的11张表、三个角色、11页Word及旧脚本命令已由2026年11月9日方案替代。
 
-| 脚本 | 作用 | 依赖 |
-|---|---|---|
-| `scripts/build_excel.py` | 生成 `deliverables/软件功能清单.xlsx` | openpyxl |
-| `scripts/export_images.py` | Excel → PDF → PNG（`assets/功能清单-*.png`） | Excel COM、pymupdf、Pillow |
-| `scripts/build_word.py` | 生成 `deliverables/第X组_电商订单管理系统.docx` | python-docx、Pillow |
-| `scripts/build_docs.py` | 生成 `docs/01-requirements.md`、`docs/02-database-design.md` | 无 |
-| `scripts/export_word_preview.py` | Word → PDF/PNG 预览 | Word COM、pymupdf |
-| `scripts/build_deliverables.py` | 一键构建全部 | 以上 |
+## 当前设计
 
-常用命令：
+- 九项功能的编号、名称、描述、约束、输入、处理、输出以`data.py`为准。
+- 使用单层分类，收货信息直接保存在订单中。
+- 基础数据规划为用户、分类、商品、购物车、购物车明细、订单、订单明细、库存、支付记录9类。
+- 订单状态顺序为待支付、已支付、已发货、已完成；待支付订单只能由所属普通用户手动取消，无自动超时取消，管理员不代取消。
+- 下单与库存扣减一起成功或撤销，取消与库存恢复一起成功或撤销。
+- 模拟支付成功记录与订单状态同步保存，同一订单仅记录一次成功支付。
+- 销售额和订单量按订单汇总，商品销量按明细数量汇总，防止多表查询重复计算金额。
+- 传统ER概念图及技术路线已在报告中定稿；详细字段类型、建库SQL、索引和事务见`docs/03-database-design.md`。
+- 业务代码、界面和测试是当前阶段的工作，实现时不得改变上述概念设计和统计口径。
 
-```bash
-# 完整构建
-python scripts/build_deliverables.py
+## 构建与校验
 
-# 组号确定后
-python scripts/build_deliverables.py --group 7
+| 文件 | 用途 |
+|---|---|
+| `scripts/data.py` | 统一内容源 |
+| `scripts/build_excel.mjs` | 用工作区`@oai/artifact-tool`生成1张七列功能清单 |
+| `scripts/export_office.ps1` | 只读打开Excel或Word并导出本地PDF |
+| `scripts/build_word.py` | 生成1页纵向说明及2页横向清单截图 |
+| `scripts/build_docs.py` | 生成需求文字版 |
+| `scripts/build_deliverables.py` | 编排完整构建和内容核验 |
 
-# 没有 Office：复用已提交的截图
-python scripts/build_deliverables.py --skip-images --no-preview
-```
+使用Codex工作区提供的Python、Node.js与依赖包。完整构建方法见`README.md`，`assets/preview/`保存内部检查材料。
 
-## 4. 必须遵守的约定
+修改正文时先改`data.py`，再重新生成。用户自行填写身份信息的约定优先于生成流程，重新生成前应注意保留已填写内容。中文文件使用UTF-8，Markdown表格中的竖线须转义。库存、订单和支付规则变更须一起检查异常路径和回滚。
 
-- **不要手改** `deliverables/*.docx`、`deliverables/*.xlsx`、`docs/01-requirements.md`、`docs/02-database-design.md`；改 `scripts/data.py` 后重新生成。
-- 所有中文文档使用 UTF-8；Markdown 表格中的 `|` 要转义。
-- 组号目前是 `X` 占位。不要猜测实际组号；等用户确认后使用 `--group`。
-- 封面成员姓名/学号目前是占位下划线；提交前必须补全。
-- 不引入真实支付、真实物流、优惠券、秒杀、评价、推荐、微服务、移动端 App。
-- 不提交 `.env`、密钥、数据库密码、Office 临时文件 `~$*`。
-- 数据库设计优先保证：主键、外键、唯一约束、CHECK、事务、行锁、索引；不要为了“功能多”牺牲一致性。
-- 所有涉及库存、订单状态、支付的修改，必须同时考虑异常路径和回滚。
+## 课程报告验收（已冻结）
 
-## 5. 目录说明
+- Word共30页，覆盖封面、摘要、三级目录、绪论和概要设计，含完整九项需求。
+- 共15幅纯黑白图：技术架构1幅、顶层用例1幅、详细用例4幅、泳道3幅、功能模块1幅、传统ER总图及属性分图4幅、订单状态1幅。
+- 页码为封面无页码、摘要与两页目录I至III、正文及参考文献1至26；三级目录的30条记录已与原生Word中的目标页码逐一核对。
+- 正文没有制作范围、免责和待确认说明；这些内容统一放在`Limitation.md`。
+- 已逐页查看原生Word导出预览，参考文件哈希不变。图源的PNG及SVG保存在`assets/report/`，内部预览保存在`assets/preview/course-report/`。
+- 报告作为编码阶段的文字与图表基线，不再改动；不提交、不推送。
 
-```text
-deliverables/        Word / Excel 交付物
-assets/              功能清单截图（Word 中嵌入）
-assets/preview/      本地 PDF/PNG 预览（gitignore）
-docs/                课程要求、需求、数据库设计
-references/          课程原始文件，不要修改
-scripts/             数据源与生成脚本
-PROJECT_LOG.md       项目日志（每次变更追加）
-README.md            对外说明
-AGENTS.md            本文件
-```
+## 此前立项材料验收
 
-## 6. 当前已知问题 / 待办
+- Word共3页，项目名称、项目描述与9项功能完整。
+- Excel含七列模板栏目和9条需求，文本可编辑。
+- Word中的两张图片与当前Excel一致，页面无裁切、缺字或错误页码。
+- `references/`与原始版本一致。
+- 变更追加至`PROJECT_LOG.md`，组号和成员信息由用户补全。
 
-1. **组号未确认**：文件名为 `第X组_电商订单管理系统.docx`，封面/页脚为 `第 X 组`。
-2. **成员信息未填**：封面“小组成员”为下划线占位。
-3. **M2 未开始**：ER 图、字段类型、DDL、初始化数据尚未完成。
-4. **技术栈未最终确认**：FastAPI + Vue 3 是建议方案，可在 M2 调整。
-5. **Word 预览依赖 Office**：无 Office 时用 `--skip-images --no-preview`，或直接打开已提交的 docx。
+## 编码阶段约定
 
-## 7. 验收清单（M1）
-
-- [ ] `deliverables/第X组_电商订单管理系统.docx` 可打开，无修复提示。
-- [ ] 封面有项目名称、方案类型、组号、成员、指导教师、日期。
-- [ ] 正文含项目名称、项目描述、功能清单、课程要求对应。
-- [ ] 功能清单截图清晰，包含 9 个功能，字段完整。
-- [ ] Excel 可编辑，含“功能清单 / 打印1 / 打印2 / 核心数据表 / SQL任务”。
-- [ ] 文档中的表名、字段名、状态值与 `scripts/data.py` 一致。
-- [ ] `PROJECT_LOG.md` 已记录本次变更。
-- [ ] 提交前补全组号、成员姓名/学号。
-
-## 8. 建议的下一步
-
-1. 等用户确认组号/成员信息，重新生成 Word。
-2. 开始 M2：ER 图、关系模式、字段类型、DDL、样例数据。
-3. 用 MySQL 8.0 实际跑通 DDL 与 4 条课程 SQL。
-4. 再进入后端/前端实现，避免先写代码后改表。
+- 以FR为单位推进，一轮完成一个功能切片：接口、事务、最小页面和测试一起交付。先做后端约束，再接页面。
+- 表结构、字段名、接口路径和错误码以`docs/03-database-design.md`为准。需要偏离时先说明原因并征得用户同意，不静默改表。
+- 库存扣减与回补、`checkout_token`幂等、每单一条成功支付、状态机、名称与金额快照、统计口径属于硬约束；改动时同时检查异常路径和回滚。
+- 权限必须在业务层校验：普通用户的购物车、订单和支付按记录归属判断，管理员权限单独判定，不能只靠页面隐藏按钮。
+- 金额使用`DECIMAL(10,2)`，时间统一`Asia/Shanghai`，数据库连接使用`READ COMMITTED`。
+- 每轮结束实际运行测试并如实报告；测试失败或未运行要写明，不写“已验证”，不伪造日志、截图或运行结果。
+- 不修改`references/`、`deliverables/`、`assets/report/`、`docs/02-course-report.md`、`scripts/data.py`，默认不运行报告生成脚本。
+- 新增依赖前说明用途，不使用全局安装；M0完成时把建库、启动和测试命令写入`README.md`。
