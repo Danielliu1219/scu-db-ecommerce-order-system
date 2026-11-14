@@ -1,0 +1,1 @@
+import{W as s,X as o}from"./index-D7oFSL0R.js";const c=r=>s("/orders","POST"),d=(r,e=!1)=>s((e?"/admin/orders":"/orders")+o(r)),n=(r,e=!1)=>s((e?"/admin/orders/":"/orders/")+r),t=r=>s(`/orders/${r}/cancel`,"POST"),i=r=>s(`/orders/${r}/confirm-receipt`,"POST"),m=r=>s(`/admin/orders/${r}/ship`,"POST");export{t as a,n as b,c,d as o,i as r,m as s};

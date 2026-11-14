@@ -1,0 +1,1 @@
+import{W as t}from"./index-D7oFSL0R.js";const m=(e,s)=>t(`/orders/${e}/payments/simulate`,"POST"),o=(e,s=!1)=>t(s?"/admin/payments?order_id="+encodeURIComponent(e):`/orders/${e}/payment`);export{o as p,m as s};
