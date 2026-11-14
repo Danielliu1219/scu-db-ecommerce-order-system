@@ -62,6 +62,6 @@
 
 本地演示入口为http://127.0.0.1:8000，账号admin及demo_01至demo_03，口令在被忽略的backend/.env中。隔离MySQL端口33316，原MySQL80服务仍停止。启动命令统一见README。
 
-托管分支为codex/ecommerce-implementation；只纳入应用、测试及必要契约/运行文档，报告阶段既有改动保留本地。CI配置保存为.github/ci-template.yml未启用模板；现有OAuth凭据缺workflow权限，远端未执行自动检查，本地验收已完成。
+已推送到codex/ecommerce-implementation，应用实现提交为ead959d；只纳入应用、测试及必要契约/运行文档，报告阶段既有改动保留本地。CI配置保存为.github/ci-template.yml未启用模板；现有OAuth凭据缺workflow权限，远端未执行自动检查，本地验收已完成。
 
 文档已集中为本清单、README和原项目日志，不新增验收总结副本。仅本轮失败的中文路径MySQL初始化目录仍在忽略的assets/preview/runtime-mysql中，递归清理被自动审批策略拦截；不影响运行或托管。

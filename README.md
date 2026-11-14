@@ -8,7 +8,7 @@
 - [数据库与接口契约](docs/03-database-design.md)：九表、DDL、事务、错误码及统计口径的唯一依据。
 - [实施清单](docs/04-implementation.md)：当前进度、默认决策、验收和文档维护；不另建重复计划。
 - [项目日志](PROJECT_LOG.md)：历史与实际验证结果；[限制说明](Limitation.md)：既定范围及限制。
-- [冻结课程报告](deliverables/第20组_电商订单管理系统_课程报告.docx)：30页、15幅纯黑白图；[报告文字](docs/02-course-report.md)及references只读。
+- 本地冻结报告：`deliverables/第20组_电商订单管理系统_课程报告.docx`（30页、15幅纯黑白图）；报告文字`docs/02-course-report.md`及references只读，未纳入本轮代码推送。
 
 ## 安装
 

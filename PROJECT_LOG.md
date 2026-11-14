@@ -401,3 +401,4 @@ python scripts/build_deliverables.py --skip-images --no-preview
 - 复核报告、图源、参考文件、报告文字、内容源及设计契约共39份文件SHA-256不变。保留报告阶段原有未提交改动。
 - 按用户要求将唯一实施清单保存为docs/04-implementation.md，精简README为现行入口和命令，并在AGENTS加入接手及定期整理规则；本轮失败初始化目录的递归清理被自动审批策略阻止，保留在忽略的预览区。
 - 用户后续允许GitHub代码托管，应用、测试及必要契约/运行文档使用codex/ecommerce-implementation分支；现有OAuth凭据缺workflow权限，首次推送被GitHub拒绝；改为.github/ci-template.yml未启用模板后继续托管，不宣称远端自动检查通过。
+- 实际已将应用实现提交ead959d推送到origin/codex/ecommerce-implementation，远端分支SHA逐一核对一致；最终本地页面HTTP 200、未登录接口401，39份受保护文件哈希再次一致。
