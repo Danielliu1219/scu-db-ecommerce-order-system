@@ -2,6 +2,16 @@
 
 四川大学《数据库系统原理》课程设计，第20组。FastAPI + SQLAlchemy 2 + MySQL 8.0，Vue 3 + Element Plus，普通用户与管理员两类角色，FR-01至FR-09。
 
+> **在线体验**：[打开 GitHub Pages 展示站](https://danielliu1219.github.io/scu-db-ecommerce-order-system/)（示例数据，游客购物车仅保存在浏览器）
+
+## 线上游客体验
+
+展示站可按名称/分类/价格筛选、查看详情、加购、改量、勾选、删除和清空游客购物车，刷新后保留。使用明确标注的示例数据，不产生真实订单，不提供真实账号注册、登录和管理写入。
+
+UI依据用户指定的[guizang-ppt-skill](https://github.com/op7418/guizang-ppt-skill)，选择瑞士国际主义/克莱因蓝视觉语言并适配Vue；商品示意图来源见frontend/public/image-credits.txt。gh-pages分支仅包含编译后的前端产物。
+
+本地系统同样支持匿名浏览上架商品，游客购物车独立保存在浏览器中，不占用库存、不自动合并到账号；登录后仍使用后端真实业务。
+
 ## 项目入口
 
 - [编码约定](AGENTS.md)：接手先读；保留现有未提交工作。
@@ -79,6 +89,22 @@ npm --prefix frontend run build
 
 后端自动在独立scu_ecommerce_test空库初始化，按外键顺序清理测试数据；拒绝使用应用库。并发测试使用真实MySQL独立连接，不使用SQLite替代行锁。
 
+也可在项目根目录统一执行下列检查。脚本使用现有局部依赖，任一步失败即停止；不启动数据库、不提交代码。`-E2E`要求8000端口后端和seed已就绪，会创建验收数据；`-QueryPlans`只读检查隔离应用库。
+
+```powershell
+./scripts/verify.ps1
+./scripts/verify.ps1 -E2E -QueryPlans
+```
+
+查询计划可单独运行，默认读取测试库，也可指定有演示数据的隔离应用库：
+
+```powershell
+& backend/.venv/Scripts/python.exe -m db.query_plan
+& backend/.venv/Scripts/python.exe -m db.query_plan --database application --json
+```
+
+脚本为每个数据库连接设置只读事务，覆盖Q1至Q4及实际分页服务，输出所用索引、估计扫描行数、temporary/filesort和语句数；不写业务数据或修改DDL。行数是优化器估计，不是EXPLAIN ANALYZE实测；小表扫描或聚合排序不直接判失败。
+
 浏览器验收需已运行后端、已构建页面、已执行seed，并提供对应ADMIN_PASSWORD；会通过业务接口创建演示账号、商品和订单：
 
 ```powershell
@@ -87,6 +113,14 @@ npm --prefix frontend run test:e2e
 ```
 
 后端运行时可刷新生成接口类型：npm --prefix frontend run gen:api。Python依赖版本记录在backend/requirements.lock，前端使用package-lock.json。
+
+展示版的构建、自动启动本地预览验收及发布命令如下。发布需要Git和已授权的GitHub CLI；脚本只推送dist-pages产物到gh-pages，不使用Actions权限、不改变课程仓库可见性。
+
+```powershell
+npm --prefix frontend run build:pages
+npm --prefix frontend run test:pages
+& backend/.venv/Scripts/python.exe frontend/scripts/publish_pages.py --skip-build
+```
 
 源码格式使用局部Ruff和Prettier：Python执行`python -m ruff check --config backend/pyproject.toml backend/app db tests`，前端执行`npm --prefix frontend run format:check`。CI配置保留为`.github/ci-template.yml`未启用模板；当前Git凭据缺少workflow权限，未启用GitHub Actions。本地检查已实际运行。
 
