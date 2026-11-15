@@ -1,6 +1,7 @@
 import { product } from '../api/catalog'
 import type { Cart, CartItem } from '../api/cart'
-import { ApiError } from '../api/client'
+import { ApiError, request } from '../api/client'
+import { guestSession } from './runtime'
 
 export const guestCartKey = 'scu-ecommerce:guest-cart:v1'
 type Entry = { id: string; product_id: string; quantity: number; selected: boolean }
@@ -138,3 +139,46 @@ export function resetGuestCart() {
   })
 }
 export const guestCount = () => entries().reduce((sum, item) => sum + item.quantity, 0)
+
+export function importGuestCart() {
+  return serial(async () => {
+    if (guestSession()) throw new ApiError('UNAUTHENTICATED', '请先登录再导入', 401)
+    const token = sessionStorage.getItem('access_token')
+    const failures: { product_id: string; message: string }[] = []
+    let imported = 0,
+      stopped = false
+    for (const item of entries()) {
+      try {
+        if (sessionStorage.getItem('access_token') !== token)
+          throw new ApiError('UNAUTHENTICATED', '登录状态已变化，请重新确认账号', 401)
+        // Always use the account endpoint: a failed import must never become a guest add.
+        await request('/cart/items', 'POST', {
+          product_id: item.product_id,
+          quantity: item.quantity,
+        })
+      } catch (error) {
+        failures.push({
+          product_id: item.product_id,
+          message: error instanceof Error ? error.message : '导入未完成',
+        })
+        const skippable =
+          error instanceof ApiError &&
+          [
+            'PRODUCT_OFF_SHELF',
+            'STOCK_INSUFFICIENT',
+            'PRODUCT_NOT_FOUND',
+            'QUANTITY_OVERFLOW',
+          ].includes(error.code)
+        if (!skippable) {
+          stopped = true
+          break
+        }
+        continue
+      }
+      // Persist each confirmed success before sending the next increment.
+      save(entries().filter((entry) => entry.id !== item.id))
+      imported++
+    }
+    return { imported, failures, remaining: entries().length, stopped }
+  })
+}
