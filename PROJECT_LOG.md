@@ -458,3 +458,10 @@ python scripts/build_deliverables.py --skip-images --no-preview
 - 改动前npm --prefix frontend test为15 passed。最终powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/verify.ps1 -E2E退出0：pytest **86 passed、1 warning（60.21s）**，Ruff通过，格式通过，Vitest **30 passed（14.88s）**，TypeScript/Vite构建通过（Vite 29.43s），Playwright **3 passed（17.6s）**。保留既有Starlette/httpx弃用、Vite主包大于500kB及Playwright颜色环境告警；未运行远端CI或重新发布Pages。
 - 使用已运行的127.0.0.1:33316隔离MySQL及8000后端，未重启或重新seed，原MySQL80为Stopped且未操作。一次完整E2E创建3个验收账号、3个分类、4个商品及库存、3个订单、1条成功支付；新增游客用例还保留1条账号购物车明细。验收数据保留，测试库清理由既有夹具负责。
 - 本轮仅改3个前端源码文件、新增3个前端测试文件，必要文档为docs/03 §9游客交互说明、docs/04当前状态及本日志；无新增依赖、视觉改版、后端/DDL/统计/错误码改动。逐文件SHA-256复核确认其余既有文件均未变化，原有删除状态保留；构建和浏览器输出仍在忽略目录，没有新增重复计划或交接文档。
+
+---
+
+## 2026年11月15日 启用GitHub Actions
+
+- 首次gh auth status只有gist/read:org/repo，按用户指示立即停止，未绕过权限。用户确认继续后复查已含workflow scope，才移动模板为.github/workflows/ci.yml；push/pull_request限定main及codex/**，权限为contents: read，不对gh-pages触发应用检查。
+- 核对tests/conftest.py：拒绝应用库，先查scu_ecommerce_test是否有表，空库调用db.bootstrap.initialize；该函数只接受scu_ecommerce或scu_ecommerce_test。CI的TEST_DATABASE_URL保持scu_ecommerce_test，mysql:8.0使用临时凭据，不改测试隔离逻辑或业务代码。首次远端运行尚待推送后核验，后续追加真实结果。
