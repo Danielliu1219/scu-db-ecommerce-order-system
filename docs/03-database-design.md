@@ -631,7 +631,7 @@ ORDER BY u.id ASC;
 
 ## 9 FR接口清单
 
-API前缀统一`/api/v1`，下表路径省略此前缀。USER表示普通用户，ADMIN表示管理员；公开入口仅注册和登录，不增加第三类持久化角色。登录使用带过期时间的JWT Bearer访问令牌，令牌有效期2小时、`sub`为用户ID；受限请求仍查询用户当前角色，不接受请求体指定权限。课程版本不做服务端令牌撤销表，改密码后的已发令牌可持续到过期，见Limitation.md。
+API前缀统一`/api/v1`，下表路径省略此前缀。USER表示普通用户，ADMIN表示管理员；公开入口为注册、登录，以及商品列表、商品详情和分类的匿名只读查询（下表记作公开），不增加第三类持久化角色。登录使用带过期时间的JWT Bearer访问令牌，令牌有效期2小时、`sub`为用户ID；受限请求仍查询用户当前角色，不接受请求体指定权限。课程版本不做服务端令牌撤销表，改密码后的已发令牌可持续到过期，见Limitation.md。
 
 成功返回`{data: ...}`，分页返回`{data: {items, page, page_size, total}}`；默认page=1、page_size=20，最大100。订单详情为头部及`items[]`、`payment|null`；金额以两位小数十进制字符串传输，数量为JSON整数，时间为带+08:00字符串，未发生事件为null。错误为`{error: {code, message, details?}}`；204删除不带响应体。空列表200，普通用户访问他人资源按404处理。
 
@@ -654,11 +654,13 @@ API前缀统一`/api/v1`，下表路径省略此前缀。USER表示普通用户�
 
 | 方法与路径 | 角色 | 入参 | 出参 | 主要错误码 |
 | --- | --- | --- | --- | --- |
-| GET /products | USER | keyword、category_id、min_price、max_price、page、page_size | 仅上架商品，名称、分类、单价、可售量 | 422 PRICE_RANGE_INVALID |
-| GET /products/{product_id} | USER | 商品ID | 上架商品详情、介绍、available | 404 PRODUCT_NOT_FOUND（含下架） |
-| GET /categories | USER | 无 | 单层分类列表 | 401 UNAUTHENTICATED |
+| GET /products | 公开（游客/USER） | keyword、category_id、min_price、max_price、page、page_size | 仅上架商品，名称、分类、单价、可售量 | 422 PRICE_RANGE_INVALID |
+| GET /products/{product_id} | 公开（游客/USER） | 商品ID | 上架商品详情、介绍、available | 404 PRODUCT_NOT_FOUND（含下架） |
+| GET /categories | 公开（游客/USER） | 无 | 单层分类列表 | 非法令牌401 |
 
 价格边界为包含式，min_price不得大于max_price，价格不得为负；无匹配结果返回空列表，可售0仍展示但不可加购。
+
+三个查询不要求令牌；携带非法或过期令牌仍返回401 UNAUTHENTICATED，不降级为游客。游客购物车仅保存在浏览器，不调用服务端购物车接口、不占用库存，也不在登录时自动合并。
 
 ### 9.3 FR-03 购物车管理
 

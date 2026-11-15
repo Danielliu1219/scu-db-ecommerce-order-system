@@ -2,17 +2,22 @@ from tests.fixtures import auth
 
 
 def test_guest_can_browse_but_cannot_write_or_use_accounts(client, goods):
-    assert {} in client.get("/openapi.json").json()["paths"]["/api/v1/products"]["get"]["security"]
+    paths = client.get("/openapi.json").json()["paths"]
+    for path in ("/api/v1/products", "/api/v1/products/{product_id}", "/api/v1/categories"):
+        assert {} in paths[path]["get"]["security"]
     assert client.get("/api/v1/categories").status_code == 200
     result = client.get("/api/v1/products").json()["data"]
     assert result["total"] == 2
     assert client.get("/api/v1/products/" + goods[0]["id"]).status_code == 200
-    assert (
-        client.get("/api/v1/products", headers={"Authorization": "Bearer invalid"}).status_code
-        == 401
-    )
+    for path in ("/products", "/products/" + goods[0]["id"], "/categories"):
+        assert (
+            client.get("/api/v1" + path, headers={"Authorization": "Bearer invalid"}).status_code
+            == 401
+        )
     for method, path in (("get", "/cart"), ("get", "/orders"), ("get", "/admin/products")):
         assert getattr(client, method)("/api/v1" + path).status_code == 401
+    assert client.post("/api/v1/orders", json={}).status_code == 401
+    assert client.get("/api/v1/admin/statistics/monthly-sales").status_code == 401
     assert (
         client.post(
             "/api/v1/cart/items", json={"product_id": goods[0]["id"], "quantity": 1}
