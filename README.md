@@ -1,134 +1,129 @@
 # 电商订单管理系统
 
-> 四川大学《数据库系统原理》课程设计（2026）· 给定方案一  
-> 仓库：<https://github.com/Danielliu1219/scu-db-ecommerce-order-system>（Public）
+四川大学《数据库系统原理》课程设计，第20组。FastAPI + SQLAlchemy 2 + MySQL 8.0，Vue 3 + Element Plus，普通用户与管理员两类角色，FR-01至FR-09。
 
-面向中小电商场景，围绕 **商品 → 购物车 → 订单 → 支付 → 库存 → 统计** 主链路构建的 B/S 订单管理系统。项目重点不是营销功能，而是订单与库存的一致性、订单状态机、支付幂等、重复提交防护和多表统计查询。
+> **在线体验**：[打开 GitHub Pages 展示站](https://danielliu1219.github.io/scu-db-ecommerce-order-system/)（示例数据，游客购物车仅保存在浏览器）
 
-## 在线体验
+## 线上游客体验
 
-[打开 GitHub Pages 展示站](https://danielliu1219.github.io/scu-db-ecommerce-order-system/)：无需注册，使用示例数据浏览商品、组合筛选、查看详情和操作游客购物车；购物车仅保存在浏览器，刷新后保留，不产生真实订单，不提供真实登录与交易。
+展示站可按名称/分类/价格筛选、查看详情、加购、改量、勾选、删除和清空游客购物车，刷新后保留。使用明确标注的示例数据，不产生真实订单，不提供真实账号注册、登录和管理写入。
 
-## 当前进度
+UI依据用户指定的[guizang-ppt-skill](https://github.com/op7418/guizang-ppt-skill)，选择瑞士国际主义/克莱因蓝视觉语言并适配Vue；商品示意图来源见frontend/public/image-credits.txt。gh-pages分支仅包含编译后的前端产物。
 
-| 阶段 | 内容 | 状态 |
-|---|---|---|
-| M1 | 立项材料：项目名称、项目描述、功能清单、Word/Excel、项目日志、GitHub 仓库 | ✅ 已完成（组号待确认） |
-| M2 | 数据库详细设计：ER 图、字段类型、DDL、初始化数据 | ⬜ 待开始 |
-| M3 | 后端基础框架、认证、商品/分类/购物车 | ⬜ 待开始 |
-| M4 | 订单—支付—库存事务闭环、管理端订单 | ⬜ 待开始 |
-| M5 | 库存预警、用户管理、销售统计与前端联调 | ⬜ 待开始 |
-| M6 | 测试、课程报告、PPT、答辩演示 | ⬜ 待开始 |
+本地系统同样支持匿名浏览上架商品，游客购物车独立保存在浏览器中，不占用库存、不自动合并到账号；登录后仍使用后端真实业务。
 
-## 交付物
+## 项目入口
 
-| 文件 | 说明 |
-|---|---|
-| [`deliverables/第X组_电商订单管理系统.docx`](deliverables/第X组_电商订单管理系统.docx) | **本次任务的 Word 立项材料**：项目名称、项目描述、功能清单（含 Excel 截图）、核心表规划、SQL 任务规划 |
-| [`deliverables/软件功能清单.xlsx`](deliverables/软件功能清单.xlsx) | 可编辑功能清单，含“功能清单”“打印1”“打印2”“核心数据表”“SQL任务”工作表 |
-| [`assets/功能清单-1.png`](assets/功能清单-1.png) | Word 中嵌入的功能清单截图（1/2） |
-| [`assets/功能清单-2.png`](assets/功能清单-2.png) | Word 中嵌入的功能清单截图（2/2） |
-| [`docs/01-requirements.md`](docs/01-requirements.md) | 需求与 9 项功能的完整文字版（由脚本生成） |
-| [`docs/02-database-design.md`](docs/02-database-design.md) | 11 张表的初步设计、约束、索引、状态枚举、事务规则 |
-| [`PROJECT_LOG.md`](PROJECT_LOG.md) | 项目日志：决策、时间线、当前状态、下一步、复现方式 |
-| [`AGENTS.md`](AGENTS.md) | 给后续 Agent / 组员的交接说明 |
+- [编码约定](AGENTS.md)：接手先读；保留现有未提交工作。
+- [数据库与接口契约](docs/03-database-design.md)：九表、DDL、事务、错误码及统计口径的唯一依据。
+- [实施清单](docs/04-implementation.md)：当前进度、默认决策、验收和文档维护；不另建重复计划。
+- [项目日志](PROJECT_LOG.md)：历史与实际验证结果；[限制说明](Limitation.md)：既定范围及限制。
+- 本地冻结报告：`deliverables/第20组_电商订单管理系统_课程报告.docx`（30页、15幅纯黑白图）；报告文字`docs/02-course-report.md`及references只读，未纳入本轮代码推送。
 
-> **组号说明**：课程要求文件名为 `第x组_电商订单管理系统.docx`。目前未提供实际组号，因此文件名、封面和页脚使用 `第 X 组` 占位。确认组号后运行 `python scripts/build_deliverables.py --group 7`（把 7 换成实际组号）即可重新生成；成员姓名/学号需要在 Word 封面手工补填，或修改 `scripts/build_word.py` 中的封面信息。
+## 安装
 
-## 功能一览
+要求Python 3.11+、Node.js 20.19+（或22.12+）、MySQL 8.0.16+。本机已核对MySQL 8.0.40。下列PowerShell命令在项目根目录执行，依赖全部安装到项目局部环境。
 
-| 编号 | 功能 | 角色 | 一句话描述 |
-|---|---|---|---|
-| FR-01 | 用户注册与登录 | 游客 / 用户 / 管理员 | 注册、登录、退出、账号状态控制，按角色进入前台或后台 |
-| FR-02 | 商品浏览与检索 | 游客 / 用户 | 按名称、分类、价格区间组合检索，查看详情与可售库存 |
-| FR-03 | 购物车管理 | 用户 | 加购、改数量、删除、勾选结算，实时计算小计与合计 |
-| FR-04 | 订单提交与库存扣减 | 用户 | 多商品下单，保存价格快照，事务内校验并扣减库存 |
-| FR-05 | 订单支付与状态管理 | 用户 / 管理员 | 模拟支付、取消、发货、收货，按状态机约束流转 |
-| FR-06 | 商品与分类管理 | 管理员 | 分类与商品的新增、编辑、上下架、软删除及多条件查询 |
-| FR-07 | 库存与预警管理 | 管理员 | 入库、出库、盘点调整、预警阈值与库存流水查询 |
-| FR-08 | 订单查询与销售统计 | 用户 / 管理员 | 订单多维查询，以及月度销售、Top10、分类占比等统计 |
-| FR-09 | 用户与地址管理 | 用户 / 管理员 | 个人资料、密码、收货地址维护，以及后台用户状态管理 |
-
-## 数据库规划
-
-共 11 张表：`users`、`address`、`category`、`product`、`inventory`、`inventory_log`、`cart`、`cart_item`、`orders`、`order_item`、`payment`。
-
-关键设计：
-
-- `cart_item(cart_id, product_id)` 唯一，重复加购合并数量。
-- `payment.order_id` 唯一，数据库层兜底支付幂等。
-- `orders.idempotency_key` 唯一，防止重复提交。
-- `inventory.stock >= 0` 的 CHECK 约束 + 行锁，防止超卖。
-- `order_item` 保存商品名称、下单单价、数量、小计快照，历史订单不受调价影响。
-- 订单状态机：`UNPAID → PAID → SHIPPED → COMPLETED`，以及 `UNPAID → CANCELLED`。
-
-## 技术路线（建议，详细设计时确认）
-
-| 层次 | 技术 |
-|---|---|
-| 前端 | Vue 3 + Vite + Element Plus + ECharts |
-| 后端 | Python 3.12 + FastAPI + SQLAlchemy 2.0 + Pydantic v2 |
-| 数据库 | MySQL 8.0（InnoDB / utf8mb4） |
-| 认证 | JWT + bcrypt |
-| 测试 | pytest + httpx + Postman/Apifox |
-| 部署 | 本地运行；可选 Docker Compose |
-
-不引入 Redis、消息队列、微服务、真实支付和真实物流，保持单机可演示。
-
-## 目录结构
-
-```text
-.
-├── deliverables/                 # Word / Excel 交付物
-├── assets/                       # 功能清单截图（Word 中嵌入）
-│   └── preview/                  # 本地 PDF/PNG 预览（不提交）
-├── docs/                         # 课程要求、需求、数据库设计
-├── references/                   # 课程原始文件（大作业说明、封面模板、功能清单模板）
-├── scripts/                      # 统一数据源与生成脚本
-│   ├── data.py                   # ★ 单一数据源：项目、功能、表、SQL、规则
-│   ├── build_excel.py            # 生成 Excel
-│   ├── export_images.py          # Excel → PDF → PNG（需要 Office）
-│   ├── build_word.py             # 生成 Word
-│   ├── build_docs.py             # 生成 Markdown 文档
-│   ├── export_word_preview.py    # Word → PDF/PNG 预览（需要 Office）
-│   └── build_deliverables.py     # 一键构建
-├── PROJECT_LOG.md                # 项目日志
-├── AGENTS.md                     # Agent 交接说明
-└── README.md
+```powershell
+python -m venv backend/.venv
+& backend/.venv/Scripts/python.exe -m pip install -r backend/requirements.lock
+& backend/.venv/Scripts/python.exe -m pip install -e backend --no-deps
+npm --prefix frontend ci
 ```
 
-## 重新生成
+使用Codex时优先使用工作区提供的Python和Node。根目录requirements.txt只服务原报告脚本，与应用依赖分开。
 
-环境：Python 3.11+、Microsoft Office（仅导出 Excel 截图和 Word 预览时需要）。
+## 数据库与初始化
 
-```bash
-# 完整构建（Excel → 截图 → Word → Markdown → PDF 预览）
-python scripts/build_deliverables.py
+已有MySQL：先核对端口、账号和权限，再启动服务。复制backend/.env.example为backend/.env，填写DATABASE_URL、独立TEST_DATABASE_URL和至少32字符随机JWT_SECRET。URL中的口令须进行URL编码；禁止提交.env或真实口令。
 
-# 组号确定后
-python scripts/build_deliverables.py --group 7
+也可使用本机MySQL二进制启动隔离开发实例：
 
-# 没有 Office 时：复用已提交的截图，只重建 Word/Markdown
-python scripts/build_deliverables.py --skip-images --no-preview
+```powershell
+& backend/.venv/Scripts/python.exe -m db.dev_mysql start
 ```
 
-依赖：
+此辅助工具使用127.0.0.1:33316、临时目录下的独立数据目录，初始化本实例root随机口令并在不存在时写入本地.env；不操作原MySQL80服务。MySQL二进制不在默认位置时使用--bin指定其bin目录。Windows数据目录放在系统临时目录，避开中文路径兼容问题。
 
-```bash
-pip install python-docx openpyxl pymupdf pillow pywin32
+```powershell
+& backend/.venv/Scripts/python.exe -m db.bootstrap
+& backend/.venv/Scripts/python.exe -m db.seed
+& backend/.venv/Scripts/python.exe -m db.demo
 ```
 
-## 文档
+bootstrap只在空库执行冻结schema.sql，已有业务表时停止。seed通过ADMIN_PASSWORD、DEMO_PASSWORD环境变量或安全交互输入获取8至64字符密码，只补缺失的admin、demo_01至demo_03及零库存商品，不覆盖已有记录。demo仅在订单集为空时经业务服务补货并生成待支付、取消、支付、发货、完成五种状态；重复运行停止。demo_03保留为从未下单用户。
 
-- [课程要求整理](docs/00-course-requirements.md)
-- [需求与功能清单](docs/01-requirements.md)
-- [数据库设计初稿](docs/02-database-design.md)
-- [项目日志](PROJECT_LOG.md)
-- [Agent 交接说明](AGENTS.md)
+## 启动与演示
 
-## 说明
+开发时分别启动两个终端：
 
-- 本项目仅用于四川大学《数据库系统原理》课程设计。
-- 组号、成员姓名、学号目前为占位信息，提交前请补全。
-- 课程原始文件保留在 `references/`，不要随意修改。
-- 所有交付物由 `scripts/data.py` 生成，修改内容后请重新运行构建脚本，不要直接手改 docx/xlsx。
+```powershell
+& backend/.venv/Scripts/python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+npm --prefix frontend run dev
+```
+
+开发页面：http://127.0.0.1:5173；接口文档：http://127.0.0.1:8000/docs。Vite将/api原路径代理到8000。
+
+同源演示先构建页面，再启动后端；浏览器访问http://127.0.0.1:8000：
+
+```powershell
+npm --prefix frontend run build
+& backend/.venv/Scripts/python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+管理员维护商品和可售库存；普通用户选购、下单、模拟支付；管理员发货；用户收货。待支付订单持续占用库存，只由所属用户手动取消。盘点输入为可售量，版本冲突后刷新并重新确认。
+
+本地隔离实例使用完后：
+
+```powershell
+& backend/.venv/Scripts/python.exe -m db.dev_mysql stop
+```
+
+## 测试
+
+```powershell
+& backend/.venv/Scripts/python.exe -m pytest -q
+npm --prefix frontend test
+npm --prefix frontend run build
+```
+
+后端自动在独立scu_ecommerce_test空库初始化，按外键顺序清理测试数据；拒绝使用应用库。并发测试使用真实MySQL独立连接，不使用SQLite替代行锁。
+
+也可在项目根目录统一执行下列检查。脚本使用现有局部依赖，任一步失败即停止；不启动数据库、不提交代码。`-E2E`要求8000端口后端和seed已就绪，会创建验收数据；`-QueryPlans`只读检查隔离应用库。
+
+```powershell
+./scripts/verify.ps1
+./scripts/verify.ps1 -E2E -QueryPlans
+```
+
+查询计划可单独运行，默认读取测试库，也可指定有演示数据的隔离应用库：
+
+```powershell
+& backend/.venv/Scripts/python.exe -m db.query_plan
+& backend/.venv/Scripts/python.exe -m db.query_plan --database application --json
+```
+
+脚本为每个数据库连接设置只读事务，覆盖Q1至Q4及实际分页服务，输出所用索引、估计扫描行数、temporary/filesort和语句数；不写业务数据或修改DDL。行数是优化器估计，不是EXPLAIN ANALYZE实测；小表扫描或聚合排序不直接判失败。
+
+浏览器验收需已运行后端、已构建页面、已执行seed，并提供对应ADMIN_PASSWORD；会通过业务接口创建演示账号、商品和订单：
+
+```powershell
+npm --prefix frontend exec -- playwright install chromium
+npm --prefix frontend run test:e2e
+```
+
+后端运行时可刷新生成接口类型：npm --prefix frontend run gen:api。Python依赖版本记录在backend/requirements.lock，前端使用package-lock.json。
+
+展示版的构建、自动启动本地预览验收及发布命令如下。发布需要Git和已授权的GitHub CLI；脚本只推送dist-pages产物到gh-pages，不使用Actions权限、不改变课程仓库可见性。
+
+```powershell
+npm --prefix frontend run build:pages
+npm --prefix frontend run test:pages
+& backend/.venv/Scripts/python.exe frontend/scripts/publish_pages.py --skip-build
+```
+
+源码格式使用局部Ruff和Prettier：Python执行`python -m ruff check --config backend/pyproject.toml backend/app db tests`，前端执行`npm --prefix frontend run format:check`。CI配置保留为`.github/ci-template.yml`未启用模板；当前Git凭据缺少workflow权限，未启用GitHub Actions。本地检查已实际运行。
+
+## 文档与原材料管理
+
+每个FR结束更新实施清单；每三项FR及交付前整理一次过期临时材料和重复说明。README只保留现行入口与运行命令，日志只记真实结果；不自动删除历史日志、冻结报告、图源或用户参考文件。报告生成脚本保留在scripts，仅供已授权的文档工作，本阶段不运行。
