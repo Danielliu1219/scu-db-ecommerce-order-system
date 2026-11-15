@@ -122,7 +122,7 @@ npm --prefix frontend run test:pages
 & backend/.venv/Scripts/python.exe frontend/scripts/publish_pages.py --skip-build
 ```
 
-源码格式使用局部Ruff和Prettier：Python执行`python -m ruff check --config backend/pyproject.toml backend/app db tests`，前端执行`npm --prefix frontend run format:check`。CI配置保留为`.github/ci-template.yml`未启用模板；当前Git凭据缺少workflow权限，未启用GitHub Actions。本地检查已实际运行。
+源码格式使用局部Ruff和Prettier：Python执行`backend/.venv/Scripts/python.exe -m ruff check --config backend/pyproject.toml backend/app db tests`，前端执行`npm --prefix frontend run format:check`。GitHub Actions配置为`.github/workflows/ci.yml`，仅对main、codex/**分支的push及以这些分支为目标的pull_request运行，不对gh-pages触发应用检查。后端使用临时MySQL 8.0服务，由测试夹具自动创建并初始化scu_ecommerce_test；前端执行格式、单测、类型检查和构建。实际结果见仓库Actions，不将本地通过等同于远端通过。
 
 ## 文档与原材料管理
 
