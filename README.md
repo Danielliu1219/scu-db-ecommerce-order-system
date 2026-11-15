@@ -1,7 +1,7 @@
 # 电商订单管理系统
 
 > 四川大学《数据库系统原理》课程设计（2026）· 给定方案一  
-> 仓库：<https://github.com/Danielliu1219/scu-db-ecommerce-order-system>（Private）
+> 仓库：<https://github.com/Danielliu1219/scu-db-ecommerce-order-system>（Public）
 
 面向中小电商场景，围绕 **商品 → 购物车 → 订单 → 支付 → 库存 → 统计** 主链路构建的 B/S 订单管理系统。项目重点不是营销功能，而是订单与库存的一致性、订单状态机、支付幂等、重复提交防护和多表统计查询。
 
