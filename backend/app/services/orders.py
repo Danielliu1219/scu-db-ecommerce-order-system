@@ -7,11 +7,11 @@ from ..checkout_payload import digest
 from ..dependencies import require
 from ..errors import fail, integrity
 from ..models import CartItem, Order, OrderItem, Product
-from ..queries import order_snapshots
+from ..queries import order_filters, order_page, order_snapshots
 from ..transactions import mysql_code, read, write
 from ..value_types import MAX_MONEY, time_range
 from . import cart, inventory
-from .common import now, page, paged
+from .common import now, paged
 
 
 def replay(s, actor, data, request_hash):
@@ -142,18 +142,10 @@ def listing(
         user_id = actor.id
 
     def query(s):
-        stmt = select(Order.id).order_by(Order.created_at.desc(), Order.id.desc())
-        if user_id is not None:
-            stmt = stmt.where(Order.user_id == user_id)
+        stmt = select(Order.id, Order.created_at).where(*order_filters(user_id, status, start, end))
         if order_id is not None:
             stmt = stmt.where(Order.id == order_id)
-        if status is not None:
-            stmt = stmt.where(Order.status == status)
-        if start is not None:
-            stmt = stmt.where(Order.created_at >= start, Order.created_at < end)
-        rows, total = page(s, stmt, page_number, page_size)
-        ids = list(rows.scalars())
-        records = order_snapshots(s, user_id=user_id, ids=ids)
+        records, total = order_page(s, stmt, page_number, page_size)
         return paged([record[0] for record in records], total, page_number, page_size)
 
     return read(query)

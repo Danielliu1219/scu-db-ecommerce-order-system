@@ -1,9 +1,10 @@
 from decimal import Decimal
 from pathlib import Path
 
-from sqlalchemy import bindparam, text
+from sqlalchemy import func, select, true
 
 from .errors import integrity
+from .models import Order, OrderItem, Payment, User
 
 DIRECTORY = Path(__file__).resolve().parents[2] / "db/queries"
 NAMES = {
@@ -18,34 +19,108 @@ def sql(number):
     return (DIRECTORY / (NAMES[number] + ".sql")).read_text(encoding="utf-8").strip().rstrip(";")
 
 
-def order_snapshots(s, user_id=None, status=None, start_at=None, end_at=None, ids=None, token=None):
-    # The same SELECT supplies header, details and payment at READ COMMITTED.
-    query = sql(1).replace(
-        "SELECT o.id AS order_id", "SELECT o.checkout_request_hash, o.id AS order_id"
+def page_parts(statement, page_number, page_size, order_columns=("id",), descending=False):
+    """Count and limit the same filtered IDs inside one SELECT, including empty pages."""
+    filtered = statement.order_by(None).cte("filtered_ids")
+    ordering = [filtered.c[name] for name in order_columns]
+    if descending:
+        ordering = [column.desc() for column in ordering]
+    page_rows = (
+        select(filtered)
+        .order_by(*ordering)
+        .offset((page_number - 1) * page_size)
+        .limit(page_size)
+        .subquery("page_rows")
     )
-    query = query.replace("JOIN order_item AS oi", "LEFT JOIN order_item AS oi")
-    query = query.replace(
-        "o.created_at >= :start_at", "(:start_at IS NULL OR o.created_at >= :start_at)"
-    )
-    query = query.replace("o.created_at < :end_at", "(:end_at IS NULL OR o.created_at < :end_at)")
-    params = dict(user_id=user_id, status=status, start_at=start_at, end_at=end_at)
+    totals = select(func.count().label("total")).select_from(filtered).subquery("page_total")
+    return page_rows, totals
+
+
+def order_filters(user_id=None, status=None, start_at=None, end_at=None, ids=None, token=None):
     clauses = []
+    if user_id is not None:
+        clauses.append(Order.user_id == user_id)
+    if status is not None:
+        clauses.append(Order.status == status)
+    if start_at is not None:
+        clauses.append(Order.created_at >= start_at)
+    if end_at is not None:
+        clauses.append(Order.created_at < end_at)
     if ids is not None:
-        if not ids:
-            return []
-        clauses.append("o.id IN :ids")
-        params["ids"] = ids
+        clauses.append(Order.id.in_(ids))
     if token is not None:
-        clauses.append("o.checkout_token = :token")
-        params["token"] = token
-    if clauses:
-        query = query.replace("ORDER BY", "AND " + " AND ".join(clauses) + "\nORDER BY")
-    statement = text(query)
-    if ids is not None:
-        statement = statement.bindparams(bindparam("ids", expanding=True))
+        clauses.append(Order.checkout_token == token)
+    return clauses
+
+
+def order_statement():
+    # Independent application query; q1_orders.sql remains the teaching contract query.
+    return (
+        select(
+            Order.checkout_request_hash,
+            Order.id.label("order_id"),
+            Order.user_id,
+            User.username,
+            Order.status,
+            Order.created_at,
+            Order.total_amount,
+            Order.receiver_name,
+            Order.receiver_phone,
+            Order.receiver_address,
+            Order.paid_at,
+            Order.shipped_at,
+            Order.completed_at,
+            Order.cancelled_at,
+            OrderItem.id.label("order_item_id"),
+            OrderItem.product_id,
+            OrderItem.product_name,
+            OrderItem.unit_price,
+            OrderItem.quantity,
+            (OrderItem.unit_price * OrderItem.quantity).label("line_amount"),
+            Payment.id.label("payment_id"),
+            Payment.amount.label("payment_amount"),
+            Payment.paid_at.label("payment_time"),
+        )
+        .select_from(Order)
+        .join(User, User.id == Order.user_id)
+        .outerjoin(OrderItem, OrderItem.order_id == Order.id)
+        .outerjoin(Payment, Payment.order_id == Order.id)
+    )
+
+
+def order_snapshots(s, user_id=None, status=None, start_at=None, end_at=None, ids=None, token=None):
+    if ids is not None and not ids:
+        return []
+    statement = (
+        order_statement()
+        .where(*order_filters(user_id, status, start_at, end_at, ids, token))
+        .order_by(Order.created_at.desc(), Order.id.desc(), OrderItem.id)
+    )
+    return assemble_orders(s.execute(statement).mappings())
+
+
+def order_page(s, filtered, page_number, page_size):
+    page_rows, totals = page_parts(
+        filtered, page_number, page_size, ("created_at", "id"), descending=True
+    )
+    details = (
+        order_statement().join(page_rows, page_rows.c.id == Order.id).subquery("order_details")
+    )
+    statement = (
+        select(totals.c.total, details)
+        .select_from(totals.outerjoin(details, true()))
+        .order_by(details.c.created_at.desc(), details.c.order_id.desc(), details.c.order_item_id)
+    )
+    rows = s.execute(statement).mappings().all()
+    return assemble_orders(rows), rows[0]["total"]
+
+
+def assemble_orders(rows):
     grouped = {}
-    for row in s.execute(statement, params).mappings():
+    for row in rows:
         oid = row["order_id"]
+        if oid is None:  # Total-only row for an empty or out-of-range page.
+            continue
         if oid not in grouped:
             fields = (
                 "username",

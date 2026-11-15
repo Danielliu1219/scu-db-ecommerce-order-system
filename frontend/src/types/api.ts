@@ -1680,7 +1680,9 @@ export interface operations {
     categories_api_v1_categories_get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                authorization?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -1779,7 +1781,9 @@ export interface operations {
                 page?: number;
                 page_size?: number;
             };
-            header?: never;
+            header?: {
+                authorization?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -1871,7 +1875,9 @@ export interface operations {
     detail_api_v1_products__product_id__get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                authorization?: string | null;
+            };
             path: {
                 product_id: string;
             };

@@ -1,3 +1,5 @@
+import { apiBase, demoMode } from '../utils/runtime'
+
 export class ApiError extends Error {
   constructor(
     public code: string,
@@ -45,10 +47,14 @@ export function query(params: Record<string, unknown>) {
   return result.size ? '?' + result.toString() : ''
 }
 export async function request<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
+  if (demoMode) {
+    const { demoRequest } = await import('../demo/request')
+    return demoRequest<T>(path, method)
+  }
   const token = sessionStorage.getItem('access_token')
   let response: globalThis.Response
   try {
-    response = await fetch('/api/v1' + path, {
+    response = await fetch(apiBase + path, {
       method,
       headers: {
         ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),

@@ -402,3 +402,47 @@ python scripts/build_deliverables.py --skip-images --no-preview
 - 按用户要求将唯一实施清单保存为docs/04-implementation.md，精简README为现行入口和命令，并在AGENTS加入接手及定期整理规则；本轮失败初始化目录的递归清理被自动审批策略阻止，保留在忽略的预览区。
 - 用户后续允许GitHub代码托管，应用、测试及必要契约/运行文档使用codex/ecommerce-implementation分支；现有OAuth凭据缺workflow权限，首次推送被GitHub拒绝；改为.github/ci-template.yml未启用模板后继续托管，不宣称远端自动检查通过。
 - 实际已将应用实现提交ead959d推送到origin/codex/ecommerce-implementation，远端分支SHA逐一核对一致；最终本地页面HTTP 200、未登录接口401，39份受保护文件哈希再次一致。
+
+---
+
+## 2026年11月14日 软件工程化与数据库质量基线审查（实施待确认）
+
+- 用户要求本轮先检查、审查和汇报，确认后才实施。本轮仅追加本记录；未修改业务代码、测试、DDL或冻结材料，未新增依赖，未commit、push或提交课程平台。拟修复范围在本轮回复中列出，不另建计划文档。
+- 已读取11月9日、11月13日及最新日志、AGENTS、docs/04、docs/03九表/索引/事务/查询/接口，并审查现有服务与测试。开始时分支为codex/ecommerce-implementation；`git status --short`已有25项已跟踪改动及11个未跟踪路径组；`git diff --stat`为25 files changed, 431 insertions(+), 2577 deletions(-)。保留全部原有改动。检查期间前端、游客测试、docs/04及.gitignore继续被外部更新，以下初轮与复查结果分别记录，不将外部改动算作本轮实现。
+- 环境只读核对：应用后端127.0.0.1:8000可访问；MySQL 8.0.40在127.0.0.1:33316，应用库scu_ecommerce与测试库scu_ecommerce_test分离；MySQL80服务为Stopped/Manual，本轮未操作该服务，也未重启后端。
+- 初轮实际命令：`backend/.venv/Scripts/python.exe -m pytest -q`复跑完整输出为42 passed、1条Starlette/httpx弃用告警；`npm --prefix frontend test`为10 passed；`npm --prefix frontend run format:check`失败，11个文件格式告警且vite.config.ts:7多余右括号导致语法错误；`npm --prefix frontend run build`同处TS1005失败；现有构建上的`npm --prefix frontend run test:e2e`为2 passed（12.8s）。初轮E2E不能作为当时未成功构建源码的验收。
+- 外部源码更新后再次执行：pytest为43 passed、1 warning（9.49s）；前端单元测试为15 passed；生产构建含类型检查通过（Vite构建8.52s，主包大于500kB告警）；重新构建后E2E为2 passed（7.6s）。最后格式检查仍失败，告警仅ProductCard.vue、UserLayout.vue、ProductListView.vue三文件。本轮未修复语法或格式；新增1项后端和5项前端游客测试来自外部工作。局部Ruff检查`backend/.venv/Scripts/python.exe -m ruff check --config backend/pyproject.toml backend/app db tests`通过。
+- 真实MySQL测试库单独复现：订单列表请求status=PENDING，在ID分页后通过另一连接取消该单，返回total=1且items状态为CANCELLED，确认READ COMMITTED下跨语句分页过滤失配。极端输入created_start=0001-01-01T00:00:00+14:00触发时间转换溢出，响应500纯文本Internal Server Error；缺开始、缺结束、逆序时间均实际返回422 TIME_RANGE_INVALID。首次探针错误假定测试库残留alice，因账号不存在失败；改用独立命名测试数据后完成上述复现。探针不是新增自动测试，也未写入应用库。
+- 查询审查：Q1到Q4的左闭右开时间、支付月、状态集合、订单金额粒度、按商品ID归并、并列按ID取前10、Q4管理员排除/取消订单/固定as_of符合契约。订单分页按订单ID取完整明细，没有直接LIMIT明细；当前未发现分页N+1。维护风险为queries.order_snapshots对Q1进行多次字符串替换，及分页COUNT/数据跨语句读取。库存COUNT还重复执行待支付占用聚合。
+- 在隔离应用库以START TRANSACTION READ ONLY执行EXPLAIN，未写数据或DDL；样本15用户、18商品、21订单、26明细、9支付。Q1使用uk_orders_user_token（估计5行）、明细/支付唯一索引，有temporary/filesort；Q2/Q3使用idx_payment_paid_order（估计9行），聚合有temporary/filesort；Q4使用用户主键扫描（估计15行）及idx_orders_user_created反连接。用户/管理员订单ID分页分别使用idx_orders_user_created/idx_orders_status_created，反向索引扫描，无该分页步骤的filesort；商品分类价格筛选使用idx_product_category_status_price（估计3行），ID排序有filesort；关键词COUNT为ALL（估计18行）；库存按商品用uk_inventory_product，派生占用使用状态索引及temporary；用户COUNT使用idx_users_role_created；未下单用户反连接使用idx_orders_user_created。rows为优化器估计，未运行EXPLAIN ANALYZE；小样本扫描/聚合排序不是失败证据，目前不建议新增索引。实际服务SELECT次数：订单3，商品/库存/用户各2，未下单用户3（含NOW）。
+- 事务审查未发现需重写锁顺序的缺陷：结算父车锁后商品/库存升序，取消订单锁后库存升序，支付锁订单；版本更新、单笔回滚、最多3次新会话重试及未知提交不重放增量已实现并有部分测试。仍缺完整的输入/权限边界、跨用户token、整页多单多明细、非零库存与历史引用删除、盘点负差额、改名销量归并/并列前10、固定as_of翻页、业务提交失联核对及更完整的API序列化与故障回滚测试。
+- 当前索引未跟踪实际.env、预览/浏览器结果或常见数据库转储文件；逐文件检查索引内容未匹配本地数据库口令、管理员/演示口令或JWT密钥；相关敏感路径在可见Git历史中未发现提交。backend/.env、assets/preview和frontend/test-results被忽略。新frontend/.env.pages仅含两个公开VITE展示配置键，无口令/密钥键。.github/ci-template.yml仍为未启用模板，未运行或宣称远端CI通过。
+- 两次E2E使应用库相对检查前增加用户4、分类4、商品/库存各4、订单6、明细6、成功支付2、购物车4；最终17用户、20商品、24订单、10支付，未删除演示数据。浏览器截图等仅更新被忽略的预览/测试输出。
+- 文档问题：日志开头的2026-11-09“当前状态”仍是历史入口；新docs/04已记录用户授权游客浏览，与docs/03公开入口旧文字存在差异。本轮保留游客改造，不擅改契约或撤销现有授权。只读查询计划脚本、统一检查脚本、修复与回归测试均未落地，等待本轮用户确认。
+- 交付前按开始时SHA-256复核：40份现存受保护文件（冻结报告/参考/图源/内容源、docs/03及db/schema.sql）均未变化；原有删除状态也未变化。最终`git status --short`仍为混合工作区，`git diff --cached --stat`为空；本轮唯一主动编辑是本日志的追加。
+
+---
+
+## 2026年11月14日 瑞士风前端、游客体验与Pages上线
+
+- 按用户要求安装并读取guizang-ppt-skill，选择Swiss/IKB主题，将视觉语言适配Vue商品目录、详情、购物车、登录入口及统一组件；使用局部Lucide图标依赖和本地Unsplash示意图，不复制PPT运行时代码。
+- 新增游客访问状态：原商品/分类查询接口允许匿名读取，仍拒绝非法令牌；购物车仅在浏览器保存，不增加角色或表、不扣真实库存，交易与管理接口继续鉴权。冻结报告、docs/03和内容源保持原样，授权差异集中记录在Limitation及实施清单。
+- Pages构建使用明确标注的示例数据和hash路由；拒绝账户/交易/管理请求，不携带数据库配置或账号口令。通过独立暂存仓库只推送dist-pages产物，课程仓库保持私有。
+- 已发布https://danielliu1219.github.io/scu-db-ecommerce-order-system/，gh-pages提交75be60d，GitHub Pages状态built，公开HTTP 200，线上资源名与本轮构建一致。修复发布API空响应的解析，重复发布保留分支历史。
+- 实际验收：MySQL后端43项、前端15项、双角色浏览器回归2条、本地Pages浏览器2条、线上Pages浏览器2条全部通过；游客覆盖组合筛选、缺货、购物车改量/勾选/清空/刷新保存、交易拦截和390px手机布局；线上未发出业务API请求。类型/格式检查及完整系统、Pages两种构建通过。
+- 已查看桌面及手机实测截图，修正商品图裁切和页脚对齐；截图等待动效稳定。39份受保护文件SHA-256不变，报告阶段原有未提交改动保留，文档在原文件内精简更新。
+
+---
+
+## 2026年11月15日 完成后端查询与事务质量加固
+
+- 用户确认上一轮第3、4项范围，优先修复订单分页失配及时间换算溢出；分页总数与当前页必须同语句快照。游客方案重新等待确认，现有实现不扩大；不改九表DDL、接口路径、统计口径，不commit、不push。本轮保留原有47项已暂存文件及报告阶段未提交改动，不运行报告生成脚本。
+- 按README核对本地root账号配置与33316端口后执行`backend/.venv/Scripts/python.exe -m db.dev_mysql start`，只启动已有隔离实例；原MySQL80服务始终Stopped。应用库scu_ecommerce、测试库scu_ecommerce_test保持分离。为E2E按README在8000启动本轮后端，未重新seed或删除应用数据。
+- 改动前实际基线：`backend/.venv/Scripts/python.exe -m pytest -q`为43 passed、1 warning；`npm --prefix frontend run format:check`通过，三个此前格式失败文件已由既有工作修复；`npm --prefix frontend test`为15 passed；`npm --prefix frontend run build`通过。本轮前端文件SHA-256全部保持原样，无视觉或游客代码改动。
+- 两个已证实缺陷先补回归：原实现3项失败（分页total=1但items为空、时区换算上下溢出各1项），修复后通过。应用订单查询改为SQLAlchemy独立参数化SELECT，保留Q1原文件；订单ID筛选/分页、总数、完整明细及支付由一条SELECT读取，防止READ COMMITTED下跨语句混合状态；空页用总数锚点保留total。商品、库存、用户、未下单用户分页同步采用单语句总数+数据；未下单用户另有一次NOW读取固定as_of。库存COUNT不再重复计算待支付占用量。时间转换捕获OverflowError并返回已有422错误码。
+- 新增43项真实MySQL自动测试，总计86项；并加强已有快照金额、取消回补版本和失败支付无记录断言。覆盖并发分页、完整多单多明细、空页总数、时间边界/偏移、非法结算输入、金额/数量上界、跨用户token、Unicode/ID规范化重放、权限拒绝、清车后异常回滚、删除保护、盘点正负零差额、完整冲突details、统计改名/并列前10/固定as_of、API序列化和敏感错误。原生1205锁等待超时与1213死锁分别验证整笔回滚、新会话重试；结算/取消/支付提交响应丢失核对原事实，未知结算不重试、未知补货503及旧版本防重复入库均通过。
+- 新增`db/query_plan.py`，每个连接设置SESSION TRANSACTION READ ONLY，检查Q1至Q4及9个实际分页场景，输出索引、估计rows、temporary/filesort和SELECT次数，支持JSON；测试验证运行前后数据不变。新增`scripts/verify.ps1`复用既有命令并失败即停止，README补运行方式；无新增依赖，CI仍为未启用模板。
+- 最终完整命令`powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/verify.ps1 -E2E -QueryPlans`退出0：pytest **86 passed、1 warning（23.24s）**；Ruff通过；Prettier通过；Vitest **15 passed**；TypeScript/Vite构建通过（Vite 12.84s）；Playwright **2 passed（9.0s）**；13个查询计划场景全部执行成功。保留Starlette/httpx弃用、Vite主包大于500kB和Playwright颜色环境告警，不宣称远端CI通过。开发中一次测试误引用DTO类名造成收集错误、一次Ruff报告3条E731，均已修正并纳入最终通过结果。
+- EXPLAIN样本为MySQL 8.0.40、21用户/24商品/30订单/35明细/12支付。Q1使用uk_orders_user_token（估计5行）及明细/支付唯一索引，有temporary/filesort；Q2/Q3使用idx_payment_paid_order（估计10行），聚合有temporary/filesort；Q4用用户主键（估计20行）及idx_orders_user_created反连接。订单分页的用户/状态索引估计5/9行并反向扫描；商品分类价格索引估计3行，关键词COUNT扫描估计24行；库存按商品用uk_inventory_product，待支付聚合仅一次；用户角色索引及未下单用户反连接有效。合并分页有派生表及页面结果排序，属于同语句一致性方案的实际代价，不据小样本扫描或排序添加索引。未执行EXPLAIN ANALYZE；rows不是实测扫描量。订单/商品/库存/用户分页各1条SELECT，未下单用户2条（NOW及一条总数+当前页SQL）。
+- 本轮一次E2E新增应用数据：2用户、2分类、2商品/库存、3订单/明细、1成功支付、2购物车，全部保留；最终21用户、24商品、30订单、12支付。测试清理只作用于独立测试库，浏览器输出和后端运行日志位于忽略目录。
+- 交付复核：44份受保护文件（冻结材料、内容源、docs/03、schema及Q1至Q4）SHA-256与本轮开始一致；原有删除状态保留，前端无改动。Git索引内容及HEAD逐一比较未变，当前索引未发现本地真实口令/JWT密钥匹配，未跟踪.env、预览或构建结果。无新增重复计划/交接文档，无过期本轮临时源文件需删除。仅游客保留与契约权限文字同步仍待用户确认，已记入唯一实施清单。

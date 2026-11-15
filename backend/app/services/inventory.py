@@ -1,11 +1,12 @@
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select, true, update
 
 from ..dependencies import require
 from ..errors import fail, integrity
 from ..models import Inventory, Order, OrderItem, Product
+from ..queries import page_parts
 from ..transactions import read, write
 from ..value_types import INT_MAX, json_value
-from .common import contains, now, page, paged
+from .common import contains, now, paged
 
 
 def lock(s, product_id):
@@ -52,6 +53,12 @@ def listing(actor, product_id=None, keyword=None, page_number=1, page_size=20):
     require(actor, "ADMIN")
 
     def query(s):
+        filtered = select(Inventory.id).join(Product, Product.id == Inventory.product_id)
+        if product_id is not None:
+            filtered = filtered.where(Product.id == product_id)
+        if keyword:
+            filtered = filtered.where(contains(Product.name, keyword))
+        page_rows, totals = page_parts(filtered, page_number, page_size)
         occupied = (
             select(OrderItem.product_id, func.sum(OrderItem.quantity).label("quantity"))
             .join(Order, Order.id == OrderItem.order_id)
@@ -60,16 +67,14 @@ def listing(actor, product_id=None, keyword=None, page_number=1, page_size=20):
             .subquery()
         )
         stmt = (
-            select(Inventory, Product.name, func.coalesce(occupied.c.quantity, 0))
-            .join(Product, Product.id == Inventory.product_id)
+            select(totals.c.total, Inventory, Product.name, func.coalesce(occupied.c.quantity, 0))
+            .select_from(totals.outerjoin(page_rows, true()))
+            .outerjoin(Inventory, Inventory.id == page_rows.c.id)
+            .outerjoin(Product, Product.id == Inventory.product_id)
             .outerjoin(occupied, occupied.c.product_id == Inventory.product_id)
             .order_by(Inventory.id)
         )
-        if product_id is not None:
-            stmt = stmt.where(Product.id == product_id)
-        if keyword:
-            stmt = stmt.where(contains(Product.name, keyword))
-        rows, total = page(s, stmt, page_number, page_size)
+        rows = s.execute(stmt).all()
         items = [
             {
                 "id": str(i.id),
@@ -80,9 +85,10 @@ def listing(actor, product_id=None, keyword=None, page_number=1, page_size=20):
                 "pending_occupied": int(occupied),
                 "updated_at": i.updated_at,
             }
-            for i, name, occupied in rows
+            for _, i, name, occupied in rows
+            if i is not None
         ]
-        return paged(items, total, page_number, page_size)
+        return paged(items, rows[0][0], page_number, page_size)
 
     return read(query)
 

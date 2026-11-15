@@ -1,0 +1,10 @@
+Product photographs from Unsplash (https://unsplash.com/license).
+Images are illustrative and do not represent real merchandise or fulfillment.
+Source: https://images.unsplash.com/photo-<image ID>
+headphones: 1583394838336-acd977736f90
+mouse: 1527814050087-3793815479db
+notebook: 1531346878377-a5be20888e57
+pen: 1583485088034-697b5bc54ccd
+mug: 1514228742587-6b1558fcca3d
+bottle: 1602143407151-7111542de6e8
+lamp: 1507473885765-e6ed057f782c

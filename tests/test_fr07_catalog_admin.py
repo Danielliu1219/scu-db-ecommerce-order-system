@@ -68,3 +68,30 @@ def test_inventory_insert_failure_rolls_back_product(accounts, goods):
         event.remove(Inventory, "before_insert", reject)
     with SessionFactory() as s:
         assert s.scalar(select(Product).where(Product.name == "回滚商品")) is None
+
+
+def test_nonzero_inventory_blocks_product_deletion(client, accounts, goods):
+    pid = goods[0]["id"]
+    r = client.delete(BASE + "/products/" + pid, headers=auth(accounts["admin"]))
+    assert r.status_code == 409 and r.json()["error"]["code"] == "INVENTORY_NOT_ZERO"
+    with SessionFactory() as s:
+        assert s.get(Product, int(pid)) is not None
+        inv = s.scalar(select(Inventory).where(Inventory.product_id == int(pid)))
+        assert (inv.available, inv.version) == (20, 1)
+
+
+def test_historical_order_reference_blocks_zero_stock_deletion(client, accounts, goods, placed):
+    from app.schemas.inventory import Count
+    from app.services import inventory, orders
+
+    orders.cancel(accounts["alice"], int(placed[0]["order_id"]))
+    pid = goods[0]["id"]
+    inventory.maintain(
+        accounts["admin"], int(pid), Count(counted_available=0, expected_version="3"), True
+    )
+    r = client.delete(BASE + "/products/" + pid, headers=auth(accounts["admin"]))
+    assert r.status_code == 409 and r.json()["error"]["code"] == "PRODUCT_IN_USE"
+    with SessionFactory() as s:
+        assert s.get(Product, int(pid)) is not None
+        inv = s.scalar(select(Inventory).where(Inventory.product_id == int(pid)))
+        assert (inv.available, inv.version) == (0, 4)

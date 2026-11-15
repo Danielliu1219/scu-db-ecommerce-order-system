@@ -6,14 +6,18 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "vue-tsc --noEmit && vite build",
+    "build:pages": "vue-tsc --noEmit && vite build --mode pages --outDir dist-pages",
+    "preview:pages": "vite preview --mode pages --outDir dist-pages --host 127.0.0.1 --port 4173",
     "test": "vitest run",
     "test:e2e": "playwright test",
+    "test:pages": "playwright test --config playwright.pages.config.ts",
     "format": "prettier --write src tests *.json *.ts index.html",
     "format:check": "prettier --check src tests *.json *.ts index.html",
     "gen:api": "openapi-typescript http://127.0.0.1:8000/openapi.json -o src/types/api.ts"
   },
   "dependencies": {
     "element-plus": "^2.9.0",
+    "lucide-vue-next": "^1.0.0",
     "pinia": "^3.0.0",
     "vue": "^3.5.0",
     "vue-router": "^4.5.0"

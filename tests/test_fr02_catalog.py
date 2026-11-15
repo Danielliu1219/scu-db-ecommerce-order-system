@@ -1,6 +1,26 @@
 from tests.fixtures import auth
 
 
+def test_guest_can_browse_but_cannot_write_or_use_accounts(client, goods):
+    assert {} in client.get("/openapi.json").json()["paths"]["/api/v1/products"]["get"]["security"]
+    assert client.get("/api/v1/categories").status_code == 200
+    result = client.get("/api/v1/products").json()["data"]
+    assert result["total"] == 2
+    assert client.get("/api/v1/products/" + goods[0]["id"]).status_code == 200
+    assert (
+        client.get("/api/v1/products", headers={"Authorization": "Bearer invalid"}).status_code
+        == 401
+    )
+    for method, path in (("get", "/cart"), ("get", "/orders"), ("get", "/admin/products")):
+        assert getattr(client, method)("/api/v1" + path).status_code == 401
+    assert (
+        client.post(
+            "/api/v1/cart/items", json={"product_id": goods[0]["id"], "quantity": 1}
+        ).status_code
+        == 401
+    )
+
+
 def test_filters_and_zero_stock(client, accounts, goods):
     h = auth(accounts["alice"])
     assert (

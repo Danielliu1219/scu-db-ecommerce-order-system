@@ -19,9 +19,7 @@ function logout() {
       ><RouterLink to="/admin/statistics">统计</RouterLink
       ><RouterLink to="/admin/users">用户</RouterLink>
       <div class="nav-end">
-        <span>{{ auth.user?.nickname }}</span><el-button text style="color: white" @click="logout"
-          >退出</el-button
-        >
+        <span>{{ auth.user?.nickname }}</span><el-button text @click="logout">退出</el-button>
       </div>
     </nav>
   </header>

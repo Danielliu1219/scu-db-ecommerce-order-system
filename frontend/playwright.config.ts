@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs'
 if (existsSync('../backend/.env')) process.loadEnvFile('../backend/.env')
 export default defineConfig({
   testDir: 'tests/e2e',
+  testIgnore: 'pages.spec.ts',
   workers: 1,
   timeout: 60000,
   use: {

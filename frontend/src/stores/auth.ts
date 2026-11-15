@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import * as identity from '../api/identity'
+import { appBase, demoMode } from '../utils/runtime'
 export const useAuth = defineStore('auth', () => {
   const user = ref<identity.User | null>(null)
   function clear() {
@@ -8,6 +9,10 @@ export const useAuth = defineStore('auth', () => {
     sessionStorage.removeItem('access_token')
   }
   async function restore() {
+    if (demoMode) {
+      clear()
+      return false
+    }
     if (!sessionStorage.getItem('access_token')) return false
     try {
       user.value = await identity.me()
@@ -24,7 +29,10 @@ export const useAuth = defineStore('auth', () => {
   }
   window.addEventListener('auth-expired', () => {
     clear()
-    if (location.pathname !== '/login') location.assign('/login')
+    if (demoMode) return
+    const current = location.pathname.slice(appBase.length)
+    if (current === 'login' || current === 'cart' || current.startsWith('products')) return
+    location.assign(appBase + 'login')
   })
   return { user, clear, restore, signIn }
 })

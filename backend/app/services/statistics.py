@@ -49,9 +49,24 @@ def inactive(actor, as_of=None, page_number=1, page_size=20):
             "offset": (page_number - 1) * page_size,
             "limit": page_size,
         }
-        total = s.scalar(text("SELECT COUNT(*) FROM (" + statement + ") AS inactive"), params)
-        rows = s.execute(text(statement + " LIMIT :limit OFFSET :offset"), params).mappings()
-        items = [dict(r) | {"user_id": str(r["user_id"])} for r in rows]
-        return paged(items, total, page_number, page_size) | {"as_of": cutoff}
+        # Keep the contract Q4 intact. The total-only row also covers out-of-range pages.
+        page_sql = f"""
+            WITH inactive AS ({statement})
+            SELECT totals.total, page_rows.*
+            FROM (SELECT COUNT(*) AS total FROM inactive) AS totals
+            LEFT JOIN (
+                SELECT * FROM inactive ORDER BY user_id LIMIT :limit OFFSET :offset
+            ) AS page_rows ON TRUE
+            ORDER BY page_rows.user_id
+        """
+        rows = s.execute(text(page_sql), params).mappings().all()
+        items = []
+        for row in rows:
+            if row["user_id"] is not None:
+                item = dict(row)
+                item.pop("total")
+                item["user_id"] = str(item["user_id"])
+                items.append(item)
+        return paged(items, rows[0]["total"], page_number, page_size) | {"as_of": cutoff}
 
     return read(query)

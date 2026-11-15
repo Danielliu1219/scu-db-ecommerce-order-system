@@ -1,12 +1,13 @@
-from sqlalchemy import select
+from sqlalchemy import select, true
 from sqlalchemy.exc import IntegrityError
 
 from ..dependencies import require
 from ..errors import fail, integrity
 from ..models import Cart, User
+from ..queries import page_parts
 from ..security import check_password, hash_password, token
 from ..transactions import mysql_code, read, write
-from .common import contains, page, paged
+from .common import contains, paged
 
 DUMMY_HASH = hash_password("UnusedAccountTiming2026!")
 
@@ -109,12 +110,20 @@ def users(actor, username=None, phone=None, page_number=1, page_size=20):
     require(actor, "ADMIN")
 
     def query(s):
-        stmt = select(User).where(User.role == "USER").order_by(User.id)
+        stmt = select(User.id).where(User.role == "USER")
         if username:
             stmt = stmt.where(contains(User.username, username))
         if phone:
             stmt = stmt.where(User.phone == phone.strip())
-        rows, total = page(s, stmt, page_number, page_size)
-        return paged([public(u) for u in rows.scalars()], total, page_number, page_size)
+        page_rows, totals = page_parts(stmt, page_number, page_size)
+        rows = s.execute(
+            select(totals.c.total, User)
+            .select_from(totals.outerjoin(page_rows, true()))
+            .outerjoin(User, User.id == page_rows.c.id)
+            .order_by(User.id)
+        ).all()
+        return paged(
+            [public(u) for _, u in rows if u is not None], rows[0][0], page_number, page_size
+        )
 
     return read(query)

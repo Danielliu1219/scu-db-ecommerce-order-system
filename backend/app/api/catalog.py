@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 from fastapi import Response as EmptyResponse
 
-from ..dependencies import Actor
+from ..dependencies import Actor, Visitor
 from ..schemas.catalog import (
     CategoryInput,
     CategoryOut,
@@ -18,14 +18,18 @@ from .common import Paging, response
 router = APIRouter(tags=["FR-02/07 商品分类"])
 
 
-@router.get("/categories", response_model=Response[list[CategoryOut]])
-def categories(actor: Actor):
+@router.get(
+    "/categories", response_model=Response[list[CategoryOut]], openapi_extra={"security": [{}]}
+)
+def categories(actor: Visitor):
     return response(catalog.categories(actor))
 
 
-@router.get("/products", response_model=Response[Page[ProductOut]])
+@router.get(
+    "/products", response_model=Response[Page[ProductOut]], openapi_extra={"security": [{}]}
+)
 def products(
-    actor: Actor,
+    actor: Visitor,
     paging: Paging,
     keyword: str | None = None,
     category_id: ID | None = None,
@@ -45,8 +49,10 @@ def products(
     )
 
 
-@router.get("/products/{product_id}", response_model=Response[ProductOut])
-def detail(actor: Actor, product_id: ID):
+@router.get(
+    "/products/{product_id}", response_model=Response[ProductOut], openapi_extra={"security": [{}]}
+)
+def detail(actor: Visitor, product_id: ID):
     return response(catalog.detail(actor, product_id))
 
 

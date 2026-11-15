@@ -1,12 +1,13 @@
-from sqlalchemy import exists, select
+from sqlalchemy import exists, select, true
 from sqlalchemy.exc import IntegrityError
 
 from ..dependencies import require
 from ..errors import fail, integrity
 from ..models import CartItem, Category, Inventory, OrderItem, Product
+from ..queries import page_parts
 from ..transactions import mysql_code, read, write
 from ..value_types import money
-from .common import contains, page, paged
+from .common import contains, paged
 
 
 def category_out(c):
@@ -47,8 +48,13 @@ def get_in_session(s, product_id, admin=True):
     return product_out(*row)
 
 
+def browse_permission(actor, admin=False):
+    if admin or actor is not None:
+        require(actor, "ADMIN" if admin else "USER")
+
+
 def categories(actor, admin=False):
-    require(actor, "ADMIN" if admin else "USER")
+    browse_permission(actor, admin)
     return read(
         lambda s: [category_out(c) for c in s.scalars(select(Category).order_by(Category.id))]
     )
@@ -65,14 +71,14 @@ def products(
     page_number=1,
     page_size=20,
 ):
-    require(actor, "ADMIN" if admin else "USER")
+    browse_permission(actor, admin)
     lower = money(min_price, "PRICE_RANGE_INVALID", True) if min_price is not None else None
     upper = money(max_price, "PRICE_RANGE_INVALID", True) if max_price is not None else None
     if lower is not None and upper is not None and lower > upper:
         fail("PRICE_RANGE_INVALID", 422)
 
     def query(s):
-        stmt = product_query().order_by(Product.id)
+        stmt = select(Product.id)
         if not admin:
             stmt = stmt.where(Product.status == "ON_SHELF")
         elif status:
@@ -85,14 +91,23 @@ def products(
             stmt = stmt.where(Product.price >= lower)
         if upper is not None:
             stmt = stmt.where(Product.price <= upper)
-        rows, total = page(s, stmt, page_number, page_size)
-        return paged([product_out(*row) for row in rows], total, page_number, page_size)
+        page_rows, totals = page_parts(stmt, page_number, page_size)
+        rows = s.execute(
+            select(totals.c.total, Product, Category, Inventory)
+            .select_from(totals.outerjoin(page_rows, true()))
+            .outerjoin(Product, Product.id == page_rows.c.id)
+            .outerjoin(Category, Category.id == Product.category_id)
+            .outerjoin(Inventory, Inventory.product_id == Product.id)
+            .order_by(Product.id)
+        ).all()
+        items = [product_out(p, c, inv) for _, p, c, inv in rows if p is not None]
+        return paged(items, rows[0][0], page_number, page_size)
 
     return read(query)
 
 
 def detail(actor, product_id, admin=False):
-    require(actor, "ADMIN" if admin else "USER")
+    browse_permission(actor, admin)
     return read(lambda s: get_in_session(s, product_id, admin))
 
 

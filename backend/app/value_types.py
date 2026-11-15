@@ -51,7 +51,7 @@ def local_time(value, code="TIME_RANGE_INVALID"):
             if result.tzinfo is None
             else result.astimezone(TZ).replace(tzinfo=None)
         )
-    except (ValueError, TypeError, AttributeError):
+    except (ValueError, TypeError, AttributeError, OverflowError):
         fail(code, 422, "时间须为秒级ISO 8601时间")
 
 

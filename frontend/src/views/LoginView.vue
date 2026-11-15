@@ -2,6 +2,7 @@
 import { reactive, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuth } from '../stores/auth'
+import { demoMode } from '../utils/runtime'
 const form = reactive({ username: '', password: '' }),
   error = ref(''),
   busy = ref(false),
@@ -9,6 +10,7 @@ const form = reactive({ username: '', password: '' }),
   router = useRouter(),
   route = useRoute()
 async function submit() {
+  if (demoMode) return
   error.value = ''
   busy.value = true
   try {
@@ -41,9 +43,18 @@ async function submit() {
     </aside>
     <section class="auth-card">
       <p class="muted">欢迎回来</p>
-      <h2>登录工作空间</h2>
-      <p class="muted">使用普通用户或预置管理员账号登录</p>
-      <el-form label-position="top" @submit.prevent="submit"
+      <h2>{{ demoMode ? '无需注册，即刻体验' : '登录工作空间' }}</h2>
+      <p class="muted">
+        {{
+          demoMode
+            ? '公开展示提供商品浏览和游客购物车。真实账号、下单和支付请在完整系统中测试。'
+            : '使用普通用户或预置管理员账号登录'
+        }}
+      </p>
+      <RouterLink v-if="demoMode" to="/products"
+        ><el-button type="primary">进入游客体验</el-button></RouterLink
+      >
+      <el-form v-else label-position="top" @submit.prevent="submit"
         ><el-form-item label="用户名"
           ><el-input
             v-model="form.username"
@@ -62,7 +73,12 @@ async function submit() {
           >登录</el-button
         ></el-form
       >
-      <p class="muted">还没有账号？<RouterLink to="/register">注册普通用户</RouterLink></p>
+      <p v-if="!demoMode" class="muted">
+        还没有账号？<RouterLink to="/register">注册普通用户</RouterLink>
+      </p>
+      <RouterLink to="/products" class="auth-guest-link">{{
+        demoMode ? '返回商品目录' : '暂不注册，以游客身份体验'
+      }}</RouterLink>
     </section>
   </div>
 </template>

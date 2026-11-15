@@ -17,6 +17,10 @@ def test_failure_success_and_repeated_failure_returns_success(client, accounts, 
         client.post(path, headers=h, json={"simulate_result": "FAILURE"}).json()["data"]["payment"]
         is None
     )
+    assert client.post(path, headers=h, json={"simulate_result": "FAILURE"}).status_code == 200
+    with SessionFactory() as s:
+        assert s.scalar(select(func.count()).select_from(Payment)) == 0
+        assert s.get(Order, int(oid)).status == "PENDING"
     first = client.post(path, headers=h, json={"simulate_result": "SUCCESS"})
     assert first.status_code == 201 and first.json()["data"]["amount"] == "80.00"
     repeated = client.post(path, headers=h, json={"simulate_result": "FAILURE"})

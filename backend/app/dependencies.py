@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Annotated
 
 import jwt
-from fastapi import Depends
+from fastapi import Depends, Header
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from .config import settings
@@ -44,6 +44,20 @@ def current_user(
 Actor = Annotated[Principal, Depends(current_user)]
 
 
+def optional_user(
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)],
+    authorization: Annotated[str | None, Header()] = None,
+):
+    if authorization is None:
+        return None
+    return current_user(credentials)
+
+
+Visitor = Annotated[Principal | None, Depends(optional_user)]
+
+
 def require(actor, role):
+    if actor is None:
+        fail("UNAUTHENTICATED", 401)
     if actor.role != role:
         fail("ROLE_FORBIDDEN", 403)

@@ -1,5 +1,6 @@
 src/types/api.ts
 node_modules
 dist
+dist-pages
 test-results
 playwright-report
