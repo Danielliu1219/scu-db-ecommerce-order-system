@@ -465,3 +465,18 @@ python scripts/build_deliverables.py --skip-images --no-preview
 
 - 首次gh auth status只有gist/read:org/repo，按用户指示立即停止，未绕过权限。用户确认继续后复查已含workflow scope，才移动模板为.github/workflows/ci.yml；push/pull_request限定main及codex/**，权限为contents: read，不对gh-pages触发应用检查。
 - 核对tests/conftest.py：拒绝应用库，先查scu_ecommerce_test是否有表，空库调用db.bootstrap.initialize；该函数只接受scu_ecommerce或scu_ecommerce_test。CI的TEST_DATABASE_URL保持scu_ecommerce_test，mysql:8.0使用临时凭据，不改测试隔离逻辑或业务代码。首次远端运行尚待推送后核验，后续追加真实结果。
+
+---
+
+## 2026年11月17日 续作CI核验、干净克隆与构建分包
+
+- 上轮CI启用提交4925ab9已推codex，main合并77a954e。实际gh run watch --exit-status：codex运行43693251563和main运行43693366838均success；前者日志明确后端86 passed（22.33s）、前端30 passed，Ruff/格式/类型/构建通过。运行链接见docs/04，不以本地结果替代远端结论。
+- 从HTTPS克隆main到系统临时目录scu-delivery-1794730339866，SHA为77a954eca5f690176b18c510c64ccb2d89a1f235，初始git status为空。python -m venv backend/.venv成功；跨日恢复后重跑pip install -r backend/requirements.lock、pip install -e backend --no-deps及npm --prefix frontend ci，全部退出0；pip check无依赖冲突。npm安装209包，报告8项漏洞（6 moderate、2 critical），独立npm audit证实来自开发依赖；omit=dev为0。未执行自动修复或大版本升级。
+- 仅本地复制忽略的backend/.env到clone，不打印口令。pytest使用scu_ecommerce_test；未运行bootstrap/seed/demo、未启动克隆后端、未执行真实系统E2E。恢复时Get-NetTCPConnection未列出监听，原项目db.dev_mysql start因端口已占用退出1且未启动实例；随后socket和只读SQL确认原33316仍可用、MySQL 8.0.40，应用九表行数及SHA-256与11月15日基线一致。没有停止或重启服务，8000当时不可连接。
+- clone内powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/verify.ps1退出0：后端86 passed、1 warning（26.81s），Ruff通过，Prettier通过，Vitest 30 passed（8.33s），TypeScript/Vite构建通过（12.51s）。git status仍空；.env与dist均被忽略，34个产物文件未匹配本地数据库口令、JWT或演示口令。README补固定RUNTIME不能跨克隆并存、测试库不可并行跑多套pytest，以及不初始化应用库的演练边界。
+- 包含绝对路径和目录校验的临时clone清理命令Remove-Item -LiteralPath ... -Recurse -Force被自动审批整体拒绝，原因为“blocked by policy”。降低范围单独删除clone/backend/.env也被拒绝，未换工具绕过；clone及.env仍在C:/Users/ltyco/AppData/Local/Temp/scu-delivery-1794730339866，需用户手动清理，不能报告已清理。
+- frontend/vite.config.ts只增加manualChunks，将Vue/vue-router/pinia与Element Plus拆为vendor；无新依赖、无业务代码或样式改动。普通构建入口1060.21kB降为21.45kB，Vue 114.33kB、Element Plus 924.63kB；Pages入口18.68kB、Vue 114.44kB、Element Plus 924.63kB。依赖仍需加载，不宣称总下载量等比例下降；500kB告警继续输出，未修改告警阈值。
+- 工作区scripts/verify.ps1退出0：后端86 passed、1 warning（27.05s），Ruff/格式通过，Vitest 30 passed（5.87s），类型/构建通过（9.38s）。build:pages通过（14.27s），本地test:pages两项通过（11.4s），覆盖桌面游客流程、手机布局、hash深链及无业务API请求；真实系统E2E本轮未运行，应用库不写入。
+- httpx锁定/实际0.28.1，pip index versions httpx仍为最新版，pip check通过；实际Starlette 1.10.0源码在没有httpx2时发出该弃用提示。按用户允许保留告警，不添加新包、不改测试行为。其余保留的提示包括npm开发依赖审计、whatwg-encoding/lucide-vue-next弃用及Actions旧Node运行时和runner镜像提示。
+- 按README执行publish_pages.py --skip-build退出0，gh-pages产物提交c2e995f205c4a6c1ab690820d7a8eeb2b4356ceb，GitHub Pages状态built。线上首页和4个入口资源均HTTP 200，JS入口/两个vendor/CSS与本地SHA-256一致；PAGES_BASE_URL指向线上后test:pages两项通过（30.1s）。普通构建/Pages仍分别包含16/17个动态import；base/hash深链与游客行为验证通过。gh-pages只运行原生pages-build-deployment（44046913746成功），Application checks分支过滤生效。
+- 最终dist的36个文件及dist-pages的37个文件未匹配本地数据库口令、JWT或账号口令。测试通过后的应用库只读复核连接33316报2003/WinError 10061，随后33316和8000探测均不可连接；未执行stop或重启，末次数据库摘要未能重取，此环境状态不替代或抹去先前真实通过结果。

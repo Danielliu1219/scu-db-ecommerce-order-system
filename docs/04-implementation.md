@@ -1,6 +1,6 @@
 # 编码实施清单
 
-最后更新：2026-11-15。当前进行GitHub Actions启用、干净克隆交付演练与构建告警清理；这是唯一实施清单，接手时同时读取 AGENTS、docs/03 和 PROJECT_LOG 最新记录。
+最后更新：2026-11-17。GitHub Actions已启用并通过远端验证，干净克隆检查与无新依赖分包已完成；这是唯一实施清单，接手时同时读取 AGENTS、docs/03 和 PROJECT_LOG 最新记录。
 
 ## 契约与边界
 
@@ -56,12 +56,22 @@
 - 每个FR结束检查重复说明与过期临时材料；连续三项FR后及最终交付前集中整理一次。
 - 仅清理本轮临时/缓存材料；冻结文件、用户材料、历史日志不自动删除。需要精简历史时先归档且保持入口。
 
-## 当前交接点（2026-11-15）
+## 当前交接点（2026-11-17）
 
 ### CI与交付演练
 
-- 用户完成交互授权后，gh auth status已确认workflow scope；原模板移动至.github/workflows/ci.yml，仅对main和codex/**的push/pull_request运行，不对gh-pages运行应用检查。保留真实MySQL测试夹具与scu_ecommerce_test隔离规则，首次远端结果待实际运行后记录。
-- 干净克隆使用系统临时目录，不启动第二个固定RUNTIME实例、不改应用库、不停止33316或8000；没有独立新实例时只复用测试库，跳过bootstrap/seed/demo与E2E。
+- 用户完成交互授权后确认workflow scope；原模板移动至.github/workflows/ci.yml，仅对main和codex/**的push/pull_request运行，不对gh-pages运行应用检查。首次[codex运行](https://github.com/Danielliu1219/scu-db-ecommerce-order-system/actions/runs/43693251563)与[main运行](https://github.com/Danielliu1219/scu-db-ecommerce-order-system/actions/runs/43693366838)均success，后端86项/前端30项通过；保留真实MySQL夹具与scu_ecommerce_test隔离规则。
+- main干净克隆SHA为77a954eca5f690176b18c510c64ccb2d89a1f235，按README安装venv/锁定依赖/editable后端/npm ci成功；verify.ps1退出0，后端86项、前端30项、Ruff/格式/类型/构建通过。只复用测试库，未运行bootstrap/seed/demo或真实系统E2E，未停止33316/8000。README补充固定RUNTIME不能跨克隆并存及安全演练限制。
+- 克隆.env未跟踪，34个构建文件未匹配本地口令/JWT。临时目录C:/Users/ltyco/AppData/Local/Temp/scu-delivery-1794730339866的递归删除及单独.env删除均被自动审批以“blocked by policy”拒绝，尚待用户手动清理，未换工具绕过。
+
+### 构建与依赖告警
+
+- vite.config.ts仅增加manualChunks，无新增依赖；普通构建入口从1060.21kB拆为21.45kB，Vue vendor 114.33kB、Element Plus vendor 924.63kB。Pages入口18.68kB，Vue vendor 114.44kB、Element Plus vendor 924.63kB；路由继续动态导入。总体下载量没有相应下降，Element Plus仍超过500kB并保留告警，未调高阈值。
+- 2026-11-17工作区verify.ps1退出0：后端86项、Vitest 30项、Ruff/格式/类型/构建通过；build:pages通过，本地Pages桌面/手机两项通过。真实系统E2E本轮跳过，不写应用库。
+- Pages按README重新发布至c2e995f；线上HTTP 200，入口JS、两个vendor及CSS与本地SHA-256相同，线上两项游客测试通过。普通/Pages入口仍分别有16/17个动态导入，base/hash深链正常；gh-pages仅触发原生pages-build-deployment并成功，未触发Application checks。
+- httpx锁定及实际版本0.28.1，pip index显示无更高稳定版，pip check通过；Starlette 1.10.0要求迁移至新包httpx2才能消除此弃用提示，本轮保留，不新增依赖或修改测试行为。
+- npm audit报告8项开发依赖漏洞（6 moderate、2 critical，涉及Vitest/tinypool等）；omit=dev审计0项。修复建议含Vitest大版本迁移，本轮未执行audit fix或force升级。另保留whatwg-encoding、lucide-vue-next弃用提示及Actions旧Node运行时/runner镜像提示。
+- 本地环境末次复核：上述测试通过后，33316只读连接被拒绝，8000亦不可连接；本轮未停止或重启服务。恢复时应用库九表摘要与上轮一致，但末次无法再读取，不能宣称交付时数据库服务在线。
 
 ### 游客购物车集成
 
