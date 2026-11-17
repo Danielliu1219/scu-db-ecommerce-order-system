@@ -1,1 +1,0 @@
-import{_ as e}from"./OrderDetailView.vue_vue_type_script_setup_true_lang-ClNYBAaj.js";import{d as o,g as r,o as t}from"./index-DDefJN_B.js";import"./orders-DAiJ5jbI.js";import"./payments-BNoBPZUO.js";import"./format-SrvP2snb.js";const f=o({__name:"OrderDetailView",setup(a){return(m,i)=>(t(),r(e,{admin:""}))}});export{f as default};
