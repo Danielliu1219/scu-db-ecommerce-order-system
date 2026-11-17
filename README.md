@@ -1,6 +1,6 @@
 # 电商订单管理系统
 
-四川大学《数据库系统原理》课程设计，第20组。FastAPI + SQLAlchemy 2 + MySQL 8.0，Vue 3 + Element Plus，普通用户与管理员两类角色，FR-01至FR-09。
+四川大学《数据库系统原理》课程设计，第20组。FastAPI + SQLAlchemy 2 + PostgreSQL 18，Vue 3 + Element Plus，普通用户与管理员两类角色，FR-01至FR-09。
 
 > **在线体验**：[打开 GitHub Pages 展示站](https://danielliu1219.github.io/scu-db-ecommerce-order-system/)（示例数据，游客购物车仅保存在浏览器）
 
@@ -22,7 +22,7 @@ UI依据用户指定的[guizang-ppt-skill](https://github.com/op7418/guizang-ppt
 
 ## 安装
 
-要求Python 3.11+、Node.js 20.19+（或22.12+）、MySQL 8.0.16+。本机已核对MySQL 8.0.40。下列PowerShell命令在项目根目录执行，依赖全部安装到项目局部环境。
+要求Python 3.11+、Node.js 20.19+（或22.12+）、PostgreSQL 18+（需要ICU排序规则支持）。本机已核对PostgreSQL 18.6。下列PowerShell命令在项目根目录执行，依赖全部安装到项目局部环境。
 
 ```powershell
 python -m venv backend/.venv
@@ -35,17 +35,17 @@ npm --prefix frontend ci
 
 ## 数据库与初始化
 
-已有MySQL：先核对端口、账号和权限，再启动服务。复制backend/.env.example为backend/.env，填写DATABASE_URL、独立TEST_DATABASE_URL和至少32字符随机JWT_SECRET。URL中的口令须进行URL编码；禁止提交.env或真实口令。
+已有PostgreSQL：先核对端口、账号和权限。复制backend/.env.example为backend/.env，填写postgresql+psycopg格式的DATABASE_URL、独立TEST_DATABASE_URL和至少32字符随机JWT_SECRET。初始化账号需要创建数据库和public schema对象的权限；禁止提交.env或真实口令。
 
-也可使用本机MySQL二进制启动隔离开发实例：
+使用本机PostgreSQL 18二进制启动项目隔离实例：
 
 ```powershell
-& backend/.venv/Scripts/python.exe -m db.dev_mysql start
+& backend/.venv/Scripts/python.exe -m db.dev_postgres start
 ```
 
-此辅助工具使用127.0.0.1:33316、临时目录下的独立数据目录，初始化本实例root随机口令并在不存在时写入本地.env；不操作原MySQL80服务。MySQL二进制不在默认位置时使用--bin指定其bin目录。Windows数据目录放在系统临时目录，避开中文路径兼容问题。
+工具从PATH寻找pg_ctl，也可用--bin指定安装目录的bin路径。默认端口55432，数据目录为系统临时目录下scu-ecommerce-postgres-加工作区路径摘要；不注册或操作系统服务。新集群使用随机口令、SCRAM认证、UTF8与Asia/Shanghai，仅监听127.0.0.1。已有.env不会覆盖；--env-file可指定另一个未跟踪配置文件。多个克隆的数据目录不同，但同时启动仍需使用不同--port。
 
-注意：db.dev_mysql的RUNTIME目录固定为系统临时目录下的scu-ecommerce-dev-mysql，不随仓库或--port改变；不能在第二份克隆中用它创建并存实例。已有应用库禁止为交付演练重新运行下列bootstrap/seed/demo命令，也不要调用stop中断其他工作使用的实例。
+以下命令仅用于新建的空应用库；已有业务库不得为了演练重置、重复导入或覆盖。
 
 ```powershell
 & backend/.venv/Scripts/python.exe -m db.bootstrap
@@ -78,7 +78,7 @@ npm --prefix frontend run build
 本地隔离实例使用完后：
 
 ```powershell
-& backend/.venv/Scripts/python.exe -m db.dev_mysql stop
+& backend/.venv/Scripts/python.exe -m db.dev_postgres stop
 ```
 
 ## 测试
@@ -89,9 +89,9 @@ npm --prefix frontend test
 npm --prefix frontend run build
 ```
 
-后端自动在独立scu_ecommerce_test空库初始化，按外键顺序清理测试数据；拒绝使用应用库。并发测试使用真实MySQL独立连接，不使用SQLite替代行锁。
+后端自动在独立PostgreSQL scu_ecommerce_test空库初始化，按外键顺序清理测试数据；拒绝使用应用库。并发测试使用真实PostgreSQL独立连接，不使用SQLite替代行锁。
 
-从main的干净克隆演练时，先按“安装”创建该克隆自己的venv并执行npm ci。若没有另一个独立MySQL实例，可仅在本机复制既有backend/.env到克隆目录，确认TEST_DATABASE_URL指向scu_ecommerce_test后运行本节检查；同一测试库不要同时运行多套pytest。此方式不运行bootstrap/seed/demo，不停止既有8000后端，跳过真实系统E2E；不能据此宣称新实例初始化或完整演示已通过。演练结束删除临时克隆，.env必须保持忽略且不提交。
+从main的干净克隆演练时，先按“安装”创建该克隆自己的venv并执行npm ci。若没有另一个独立PostgreSQL实例，可仅在本机复制既有backend/.env到克隆目录，确认TEST_DATABASE_URL指向scu_ecommerce_test后运行本节检查；同一测试库不要同时运行多套pytest。此方式不运行bootstrap/seed/demo，不停止既有8000后端，跳过真实系统E2E；不能据此宣称新实例初始化或完整演示已通过。演练结束删除临时克隆，.env必须保持忽略且不提交。
 
 也可在项目根目录统一执行下列检查。脚本使用现有局部依赖，任一步失败即停止；不启动数据库、不提交代码。`-E2E`要求8000端口后端和seed已就绪，会创建验收数据；`-QueryPlans`只读检查隔离应用库。
 
@@ -107,7 +107,7 @@ npm --prefix frontend run build
 & backend/.venv/Scripts/python.exe -m db.query_plan --database application --json
 ```
 
-脚本为每个数据库连接设置只读事务，覆盖Q1至Q4及实际分页服务，输出所用索引、估计扫描行数、temporary/filesort和语句数；不写业务数据或修改DDL。行数是优化器估计，不是EXPLAIN ANALYZE实测；小表扫描或聚合排序不直接判失败。
+脚本为每个数据库连接设置只读事务，覆盖Q1至Q4及实际分页服务，输出所用索引、估计扫描行数、Sort、Hash/Aggregate等计划节点和语句数；不写业务数据或修改DDL。行数是优化器估计，不是EXPLAIN ANALYZE实测；小表扫描或聚合排序不直接判失败。
 
 浏览器验收需已运行后端、已构建页面、已执行seed，并提供对应ADMIN_PASSWORD；会通过业务接口创建演示账号、商品和订单：
 
@@ -126,7 +126,7 @@ npm --prefix frontend run test:pages
 & backend/.venv/Scripts/python.exe frontend/scripts/publish_pages.py --skip-build
 ```
 
-源码格式使用局部Ruff和Prettier：Python执行`backend/.venv/Scripts/python.exe -m ruff check --config backend/pyproject.toml backend/app db tests`，前端执行`npm --prefix frontend run format:check`。GitHub Actions配置为`.github/workflows/ci.yml`，仅对main、codex/**分支的push及以这些分支为目标的pull_request运行，不对gh-pages触发应用检查。后端使用临时MySQL 8.0服务，由测试夹具自动创建并初始化scu_ecommerce_test；前端执行格式、单测、类型检查和构建。实际结果见仓库Actions，不将本地通过等同于远端通过。
+源码格式使用局部Ruff和Prettier：Python执行`backend/.venv/Scripts/python.exe -m ruff check --config backend/pyproject.toml backend/app db tests`，前端执行`npm --prefix frontend run format:check`。GitHub Actions配置为`.github/workflows/ci.yml`，仅对main、codex/**分支的push及以这些分支为目标的pull_request运行，不对gh-pages触发应用检查。后端使用临时PostgreSQL 18服务，由测试夹具自动创建并初始化scu_ecommerce_test；前端执行格式、单测、类型检查和构建。实际结果见仓库Actions，不将本地通过等同于远端通过。
 
 ## 文档与原材料管理
 

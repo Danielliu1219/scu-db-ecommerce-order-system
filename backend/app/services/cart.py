@@ -119,7 +119,8 @@ def edit(actor, item_id, data):
                 data.quantity if data.quantity is not None else item.quantity,
             )
         for key in data.model_fields_set:
-            setattr(item, key, getattr(data, key))
+            value = getattr(data, key)
+            setattr(item, key, int(value) if key == "selected" else value)
         s.flush()
         result = snapshot(s, actor.id)
         return {

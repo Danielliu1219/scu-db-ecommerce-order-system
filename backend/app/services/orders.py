@@ -8,7 +8,7 @@ from ..dependencies import require
 from ..errors import fail, integrity
 from ..models import CartItem, Order, OrderItem, Product
 from ..queries import order_filters, order_page, order_snapshots
-from ..transactions import mysql_code, read, write
+from ..transactions import constraint_name, read, sqlstate, write
 from ..value_types import MAX_MONEY, time_range
 from . import cart, inventory
 from .common import now, paged
@@ -98,7 +98,7 @@ def checkout(actor, data):
     try:
         return write(change, lambda s: replay(s, actor, data, request_hash))
     except IntegrityError as exc:
-        if mysql_code(exc) == 1062 and "uk_orders_user_token" in str(exc.orig):
+        if sqlstate(exc) == "23505" and constraint_name(exc) == "uk_orders_user_token":
             result = read(lambda s: replay(s, actor, data, request_hash))
             integrity(result is not None)
             return result

@@ -1,109 +1,118 @@
-CREATE DATABASE IF NOT EXISTS scu_ecommerce
-  CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
-USE scu_ecommerce;
-SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci;
-SET SESSION time_zone = '+08:00';
-SET SESSION transaction_isolation = 'READ-COMMITTED';
-SET SESSION sql_mode = 'STRICT_TRANS_TABLES,ONLY_FULL_GROUP_BY,NO_ZERO_DATE,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION';
+SET TIME ZONE 'Asia/Shanghai';
+SET default_transaction_isolation = 'read committed';
+CREATE COLLATION app_ci (provider = icu, locale = 'und-u-ks-level1', deterministic = false);
 
+CREATE SEQUENCE users_id_seq AS BIGINT;
 CREATE TABLE users (
-  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  username VARCHAR(32) NOT NULL,
+  id NUMERIC(20,0) NOT NULL DEFAULT nextval('users_id_seq'),
+  username VARCHAR(32) COLLATE app_ci NOT NULL,
   password_hash VARCHAR(255) NOT NULL,
-  role VARCHAR(10) COLLATE utf8mb4_bin NOT NULL DEFAULT 'USER',
-  nickname VARCHAR(50) NOT NULL,
-  phone VARCHAR(20) NOT NULL,
-  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  role VARCHAR(10) COLLATE "C" NOT NULL DEFAULT 'USER',
+  nickname VARCHAR(50) COLLATE app_ci NOT NULL,
+  phone VARCHAR(20) COLLATE app_ci NOT NULL,
+  created_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL DEFAULT date_trunc('second', statement_timestamp() AT TIME ZONE 'Asia/Shanghai'),
+  updated_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL DEFAULT date_trunc('second', statement_timestamp() AT TIME ZONE 'Asia/Shanghai'),
   PRIMARY KEY (id),
-  UNIQUE KEY uk_users_username (username),
-  KEY idx_users_role_created (role, created_at, id),
+  CONSTRAINT uk_users_username UNIQUE (username),
   CONSTRAINT ck_users_username CHECK (CHAR_LENGTH(TRIM(username)) BETWEEN 3 AND 32),
   CONSTRAINT ck_users_password CHECK (CHAR_LENGTH(TRIM(password_hash)) > 0),
   CONSTRAINT ck_users_role CHECK (role IN ('USER', 'ADMIN')),
   CONSTRAINT ck_users_nickname CHECK (CHAR_LENGTH(TRIM(nickname)) > 0),
-  CONSTRAINT ck_users_phone CHECK (CHAR_LENGTH(TRIM(phone)) > 0)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+  CONSTRAINT ck_users_phone CHECK (CHAR_LENGTH(TRIM(phone)) > 0),
+  CONSTRAINT ck_users_id_range CHECK (id BETWEEN 1 AND 18446744073709551615)
+);
+ALTER SEQUENCE users_id_seq OWNED BY users.id;
 
+CREATE SEQUENCE category_id_seq AS BIGINT;
 CREATE TABLE category (
-  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  name VARCHAR(50) NOT NULL,
-  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  id NUMERIC(20,0) NOT NULL DEFAULT nextval('category_id_seq'),
+  name VARCHAR(50) COLLATE app_ci NOT NULL,
+  created_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL DEFAULT date_trunc('second', statement_timestamp() AT TIME ZONE 'Asia/Shanghai'),
+  updated_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL DEFAULT date_trunc('second', statement_timestamp() AT TIME ZONE 'Asia/Shanghai'),
   PRIMARY KEY (id),
-  UNIQUE KEY uk_category_name (name),
-  CONSTRAINT ck_category_name CHECK (CHAR_LENGTH(TRIM(name)) > 0)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+  CONSTRAINT uk_category_name UNIQUE (name),
+  CONSTRAINT ck_category_name CHECK (CHAR_LENGTH(TRIM(name)) > 0),
+  CONSTRAINT ck_category_id_range CHECK (id BETWEEN 1 AND 18446744073709551615)
+);
+ALTER SEQUENCE category_id_seq OWNED BY category.id;
 
+CREATE SEQUENCE product_id_seq AS BIGINT;
 CREATE TABLE product (
-  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  category_id BIGINT UNSIGNED NOT NULL,
-  name VARCHAR(100) NOT NULL,
+  id NUMERIC(20,0) NOT NULL DEFAULT nextval('product_id_seq'),
+  category_id NUMERIC(20,0) NOT NULL,
+  name VARCHAR(100) COLLATE app_ci NOT NULL,
   price DECIMAL(10,2) NOT NULL,
-  description TEXT NOT NULL,
-  status VARCHAR(10) COLLATE utf8mb4_bin NOT NULL DEFAULT 'OFF_SHELF',
-  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  description TEXT COLLATE app_ci NOT NULL,
+  status VARCHAR(10) COLLATE "C" NOT NULL DEFAULT 'OFF_SHELF',
+  created_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL DEFAULT date_trunc('second', statement_timestamp() AT TIME ZONE 'Asia/Shanghai'),
+  updated_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL DEFAULT date_trunc('second', statement_timestamp() AT TIME ZONE 'Asia/Shanghai'),
   PRIMARY KEY (id),
-  KEY idx_product_category_status_price (category_id, status, price, id),
-  KEY idx_product_status_price (status, price, id),
   CONSTRAINT fk_product_category FOREIGN KEY (category_id) REFERENCES category (id)
     ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT ck_product_name CHECK (CHAR_LENGTH(TRIM(name)) > 0),
   CONSTRAINT ck_product_price CHECK (price > 0),
-  CONSTRAINT ck_product_status CHECK (status IN ('ON_SHELF', 'OFF_SHELF'))
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+  CONSTRAINT ck_product_status CHECK (status IN ('ON_SHELF', 'OFF_SHELF')),
+  CONSTRAINT ck_product_id_range CHECK (id BETWEEN 1 AND 18446744073709551615),
+  CONSTRAINT ck_product_category_id_range CHECK (category_id BETWEEN 1 AND 18446744073709551615)
+);
+ALTER SEQUENCE product_id_seq OWNED BY product.id;
 
+CREATE SEQUENCE cart_id_seq AS BIGINT;
 CREATE TABLE cart (
-  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  user_id BIGINT UNSIGNED NOT NULL,
-  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  id NUMERIC(20,0) NOT NULL DEFAULT nextval('cart_id_seq'),
+  user_id NUMERIC(20,0) NOT NULL,
+  created_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL DEFAULT date_trunc('second', statement_timestamp() AT TIME ZONE 'Asia/Shanghai'),
   PRIMARY KEY (id),
-  UNIQUE KEY uk_cart_user (user_id),
+  CONSTRAINT uk_cart_user UNIQUE (user_id),
   CONSTRAINT fk_cart_user FOREIGN KEY (user_id) REFERENCES users (id)
-    ON DELETE RESTRICT ON UPDATE RESTRICT
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+    ON DELETE RESTRICT ON UPDATE RESTRICT,
+  CONSTRAINT ck_cart_id_range CHECK (id BETWEEN 1 AND 18446744073709551615),
+  CONSTRAINT ck_cart_user_id_range CHECK (user_id BETWEEN 1 AND 18446744073709551615)
+);
+ALTER SEQUENCE cart_id_seq OWNED BY cart.id;
 
+CREATE SEQUENCE cart_item_id_seq AS BIGINT;
 CREATE TABLE cart_item (
-  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  cart_id BIGINT UNSIGNED NOT NULL,
-  product_id BIGINT UNSIGNED NOT NULL,
+  id NUMERIC(20,0) NOT NULL DEFAULT nextval('cart_item_id_seq'),
+  cart_id NUMERIC(20,0) NOT NULL,
+  product_id NUMERIC(20,0) NOT NULL,
   quantity INT NOT NULL DEFAULT 1,
-  selected TINYINT NOT NULL DEFAULT 1,
-  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  selected SMALLINT NOT NULL DEFAULT 1,
+  created_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL DEFAULT date_trunc('second', statement_timestamp() AT TIME ZONE 'Asia/Shanghai'),
+  updated_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL DEFAULT date_trunc('second', statement_timestamp() AT TIME ZONE 'Asia/Shanghai'),
   PRIMARY KEY (id),
-  UNIQUE KEY uk_cart_item_product (cart_id, product_id),
-  KEY idx_cart_item_product (product_id),
+  CONSTRAINT uk_cart_item_product UNIQUE (cart_id, product_id),
   CONSTRAINT fk_cart_item_cart FOREIGN KEY (cart_id) REFERENCES cart (id)
     ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT fk_cart_item_product FOREIGN KEY (product_id) REFERENCES product (id)
     ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT ck_cart_item_quantity CHECK (quantity > 0),
-  CONSTRAINT ck_cart_item_selected CHECK (selected IN (0, 1))
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+  CONSTRAINT ck_cart_item_selected CHECK (selected IN (0, 1)),
+  CONSTRAINT ck_cart_item_id_range CHECK (id BETWEEN 1 AND 18446744073709551615),
+  CONSTRAINT ck_cart_item_cart_id_range CHECK (cart_id BETWEEN 1 AND 18446744073709551615),
+  CONSTRAINT ck_cart_item_product_id_range CHECK (product_id BETWEEN 1 AND 18446744073709551615)
+);
+ALTER SEQUENCE cart_item_id_seq OWNED BY cart_item.id;
 
+CREATE SEQUENCE orders_id_seq AS BIGINT;
 CREATE TABLE orders (
-  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  user_id BIGINT UNSIGNED NOT NULL,
-  checkout_token CHAR(32) COLLATE utf8mb4_bin NOT NULL,
-  checkout_request_hash CHAR(64) COLLATE utf8mb4_bin NOT NULL,
+  id NUMERIC(20,0) NOT NULL DEFAULT nextval('orders_id_seq'),
+  user_id NUMERIC(20,0) NOT NULL,
+  checkout_token CHAR(32) COLLATE "C" NOT NULL,
+  checkout_request_hash CHAR(64) COLLATE "C" NOT NULL,
   total_amount DECIMAL(10,2) NOT NULL,
-  status VARCHAR(12) COLLATE utf8mb4_bin NOT NULL DEFAULT 'PENDING',
-  receiver_name VARCHAR(50) NOT NULL,
-  receiver_phone VARCHAR(20) NOT NULL,
-  receiver_address VARCHAR(255) NOT NULL,
-  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  paid_at DATETIME NULL DEFAULT NULL,
-  shipped_at DATETIME NULL DEFAULT NULL,
-  completed_at DATETIME NULL DEFAULT NULL,
-  cancelled_at DATETIME NULL DEFAULT NULL,
-  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  status VARCHAR(12) COLLATE "C" NOT NULL DEFAULT 'PENDING',
+  receiver_name VARCHAR(50) COLLATE app_ci NOT NULL,
+  receiver_phone VARCHAR(20) COLLATE app_ci NOT NULL,
+  receiver_address VARCHAR(255) COLLATE app_ci NOT NULL,
+  created_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL DEFAULT date_trunc('second', statement_timestamp() AT TIME ZONE 'Asia/Shanghai'),
+  paid_at TIMESTAMP(0) WITHOUT TIME ZONE NULL DEFAULT NULL,
+  shipped_at TIMESTAMP(0) WITHOUT TIME ZONE NULL DEFAULT NULL,
+  completed_at TIMESTAMP(0) WITHOUT TIME ZONE NULL DEFAULT NULL,
+  cancelled_at TIMESTAMP(0) WITHOUT TIME ZONE NULL DEFAULT NULL,
+  updated_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL DEFAULT date_trunc('second', statement_timestamp() AT TIME ZONE 'Asia/Shanghai'),
   PRIMARY KEY (id),
-  UNIQUE KEY uk_orders_user_token (user_id, checkout_token),
-  KEY idx_orders_user_created (user_id, created_at, id),
-  KEY idx_orders_status_created (status, created_at, id),
-  KEY idx_orders_created (created_at, id),
+  CONSTRAINT uk_orders_user_token UNIQUE (user_id, checkout_token),
   CONSTRAINT fk_orders_user FOREIGN KEY (user_id) REFERENCES users (id)
     ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT ck_orders_token CHECK (CHAR_LENGTH(checkout_token) = 32),
@@ -131,50 +140,75 @@ CREATE TABLE orders (
     (shipped_at IS NULL OR shipped_at >= paid_at) AND
     (completed_at IS NULL OR completed_at >= shipped_at) AND
     (cancelled_at IS NULL OR cancelled_at >= created_at)
-  )
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+  ),
+  CONSTRAINT ck_orders_id_range CHECK (id BETWEEN 1 AND 18446744073709551615),
+  CONSTRAINT ck_orders_user_id_range CHECK (user_id BETWEEN 1 AND 18446744073709551615)
+);
+ALTER SEQUENCE orders_id_seq OWNED BY orders.id;
 
+CREATE SEQUENCE order_item_id_seq AS BIGINT;
 CREATE TABLE order_item (
-  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  order_id BIGINT UNSIGNED NOT NULL,
-  product_id BIGINT UNSIGNED NOT NULL,
-  product_name VARCHAR(100) NOT NULL,
+  id NUMERIC(20,0) NOT NULL DEFAULT nextval('order_item_id_seq'),
+  order_id NUMERIC(20,0) NOT NULL,
+  product_id NUMERIC(20,0) NOT NULL,
+  product_name VARCHAR(100) COLLATE app_ci NOT NULL,
   unit_price DECIMAL(10,2) NOT NULL,
   quantity INT NOT NULL,
   PRIMARY KEY (id),
-  UNIQUE KEY uk_order_item_product (order_id, product_id),
-  KEY idx_order_item_product_order (product_id, order_id),
+  CONSTRAINT uk_order_item_product UNIQUE (order_id, product_id),
   CONSTRAINT fk_order_item_order FOREIGN KEY (order_id) REFERENCES orders (id)
     ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT fk_order_item_product FOREIGN KEY (product_id) REFERENCES product (id)
     ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT ck_order_item_name CHECK (CHAR_LENGTH(TRIM(product_name)) > 0),
   CONSTRAINT ck_order_item_price CHECK (unit_price > 0),
-  CONSTRAINT ck_order_item_quantity CHECK (quantity > 0)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+  CONSTRAINT ck_order_item_quantity CHECK (quantity > 0),
+  CONSTRAINT ck_order_item_id_range CHECK (id BETWEEN 1 AND 18446744073709551615),
+  CONSTRAINT ck_order_item_order_id_range CHECK (order_id BETWEEN 1 AND 18446744073709551615),
+  CONSTRAINT ck_order_item_product_id_range CHECK (product_id BETWEEN 1 AND 18446744073709551615)
+);
+ALTER SEQUENCE order_item_id_seq OWNED BY order_item.id;
 
+CREATE SEQUENCE inventory_id_seq AS BIGINT;
 CREATE TABLE inventory (
-  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  product_id BIGINT UNSIGNED NOT NULL,
+  id NUMERIC(20,0) NOT NULL DEFAULT nextval('inventory_id_seq'),
+  product_id NUMERIC(20,0) NOT NULL,
   available INT NOT NULL DEFAULT 0,
-  version BIGINT UNSIGNED NOT NULL DEFAULT 0,
-  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  version NUMERIC(20,0) NOT NULL DEFAULT 0,
+  updated_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL DEFAULT date_trunc('second', statement_timestamp() AT TIME ZONE 'Asia/Shanghai'),
   PRIMARY KEY (id),
-  UNIQUE KEY uk_inventory_product (product_id),
+  CONSTRAINT uk_inventory_product UNIQUE (product_id),
   CONSTRAINT fk_inventory_product FOREIGN KEY (product_id) REFERENCES product (id)
     ON DELETE RESTRICT ON UPDATE RESTRICT,
-  CONSTRAINT ck_inventory_available CHECK (available >= 0)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+  CONSTRAINT ck_inventory_available CHECK (available >= 0),
+  CONSTRAINT ck_inventory_id_range CHECK (id BETWEEN 1 AND 18446744073709551615),
+  CONSTRAINT ck_inventory_product_id_range CHECK (product_id BETWEEN 1 AND 18446744073709551615),
+  CONSTRAINT ck_inventory_version_range CHECK (version BETWEEN 0 AND 18446744073709551615)
+);
+ALTER SEQUENCE inventory_id_seq OWNED BY inventory.id;
 
+CREATE SEQUENCE payment_id_seq AS BIGINT;
 CREATE TABLE payment (
-  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  order_id BIGINT UNSIGNED NOT NULL,
+  id NUMERIC(20,0) NOT NULL DEFAULT nextval('payment_id_seq'),
+  order_id NUMERIC(20,0) NOT NULL,
   amount DECIMAL(10,2) NOT NULL,
-  paid_at DATETIME NOT NULL,
+  paid_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL,
   PRIMARY KEY (id),
-  UNIQUE KEY uk_payment_order (order_id),
-  KEY idx_payment_paid_order (paid_at, order_id),
+  CONSTRAINT uk_payment_order UNIQUE (order_id),
   CONSTRAINT fk_payment_order FOREIGN KEY (order_id) REFERENCES orders (id)
     ON DELETE RESTRICT ON UPDATE RESTRICT,
-  CONSTRAINT ck_payment_amount CHECK (amount > 0)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+  CONSTRAINT ck_payment_amount CHECK (amount > 0),
+  CONSTRAINT ck_payment_id_range CHECK (id BETWEEN 1 AND 18446744073709551615),
+  CONSTRAINT ck_payment_order_id_range CHECK (order_id BETWEEN 1 AND 18446744073709551615)
+);
+ALTER SEQUENCE payment_id_seq OWNED BY payment.id;
+
+CREATE INDEX idx_users_role_created ON users (role, created_at, id);
+CREATE INDEX idx_product_category_status_price ON product (category_id, status, price, id);
+CREATE INDEX idx_product_status_price ON product (status, price, id);
+CREATE INDEX idx_cart_item_product ON cart_item (product_id);
+CREATE INDEX idx_orders_user_created ON orders (user_id, created_at, id);
+CREATE INDEX idx_orders_status_created ON orders (status, created_at, id);
+CREATE INDEX idx_orders_created ON orders (created_at, id);
+CREATE INDEX idx_order_item_product_order ON order_item (product_id, order_id);
+CREATE INDEX idx_payment_paid_order ON payment (paid_at, order_id);

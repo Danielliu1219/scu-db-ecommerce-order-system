@@ -1,12 +1,13 @@
 from sqlalchemy import create_engine, event
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
 from .config import settings
 
-SQL_MODE = "STRICT_TRANS_TABLES,ONLY_FULL_GROUP_BY,NO_ZERO_DATE,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION"
-
 
 def make_engine(url):
+    if make_url(url).drivername != "postgresql+psycopg":
+        raise ValueError("Configure a postgresql+psycopg database URL")
     engine = create_engine(
         url,
         isolation_level="READ COMMITTED",
@@ -14,14 +15,20 @@ def make_engine(url):
         pool_recycle=1800,
         pool_size=8,
         max_overflow=8,
+        connect_args={"options": "-c timezone=Asia/Shanghai"},
     )
 
     @event.listens_for(engine, "connect")
     def configure(dbapi, _):
-        with dbapi.cursor() as cursor:
-            cursor.execute("SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci")
-            cursor.execute("SET SESSION time_zone = '+08:00'")
-            cursor.execute("SET SESSION sql_mode = %s", (SQL_MODE,))
+        # Keep session settings outside an implicit transaction on pooled connections.
+        original = dbapi.autocommit
+        dbapi.autocommit = True
+        try:
+            with dbapi.cursor() as cursor:
+                cursor.execute("SET TIME ZONE 'Asia/Shanghai'")
+                cursor.execute("SET lock_timeout = '5s'")
+        finally:
+            dbapi.autocommit = original
 
     return engine
 

@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_schema_is_frozen_ddl():
     doc = (ROOT / "docs/03-database-design.md").read_text(encoding="utf-8")
-    ddl = re.search(r"## 4 MySQL.*?```sql\n(.*?)```", doc, re.S).group(1)
+    ddl = re.search(r"## 4 PostgreSQL.*?```sql\n(.*?)```", doc, re.S).group(1)
     assert (ROOT / "db/schema.sql").read_text(encoding="utf-8") == ddl
 
 
@@ -22,7 +22,10 @@ def test_nine_mappings_match_live_database():
         assert [c["name"] for c in columns] == list(table.columns.keys())
         for column in columns:
             mapped = table.c[column["name"]]
-            assert str(column["type"]) == str(mapped.type)
+            assert (
+                str(column["type"].compile(dialect=engine.dialect))
+                == str(mapped.type.compile(dialect=engine.dialect))
+            )
             assert column["nullable"] == mapped.nullable
         assert {c["name"] for c in db.get_check_constraints(name)} == {
             c.name for c in table.constraints if c.__class__.__name__ == "CheckConstraint"
@@ -45,9 +48,11 @@ def test_nine_mappings_match_live_database():
 def test_connection_settings():
     with engine.connect() as c:
         row = c.execute(
-            text("SELECT @@transaction_isolation, @@time_zone, @@character_set_connection")
+            text(
+                "SELECT current_setting('transaction_isolation'), current_setting('TimeZone'), current_setting('client_encoding')"
+            )
         ).one()
-        assert tuple(row) == ("READ-COMMITTED", "+08:00", "utf8mb4")
+        assert tuple(row) == ("read committed", "Asia/Shanghai", "UTF8")
 
 
 def test_live_checks_and_foreign_keys_reject_invalid_writes(accounts, goods, placed):
@@ -74,4 +79,4 @@ def test_live_checks_and_foreign_keys_reject_invalid_writes(accounts, goods, pla
             with pytest.raises(DBAPIError) as failure:
                 with s.begin_nested():
                     s.execute(text(statement), params)
-            assert failure.value.orig.args[0] in (3819, 1452)
+            assert failure.value.orig.sqlstate in ("23514", "23503")

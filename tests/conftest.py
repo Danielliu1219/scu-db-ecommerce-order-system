@@ -12,6 +12,7 @@ load_dotenv(Path(__file__).resolve().parents[1] / "backend/.env")
 test_url = os.getenv("TEST_DATABASE_URL")
 if (
     not test_url
+    or make_url(test_url).drivername != "postgresql+psycopg"
     or make_url(test_url).database != "scu_ecommerce_test"
     or test_url == os.getenv("DATABASE_URL")
 ):
@@ -27,14 +28,17 @@ from tests.fixtures import placed as placed
 
 @pytest.fixture(scope="session", autouse=True)
 def database():
-    admin = create_engine(make_url(test_url).set(database=""))
+    admin = create_engine(make_url(test_url).set(database="postgres"))
     with admin.connect() as c:
         count = c.scalar(
-            text(
-                "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='scu_ecommerce_test'"
-            )
+            text("SELECT COUNT(*) FROM pg_database WHERE datname='scu_ecommerce_test'")
         )
     admin.dispose()
+    if count:
+        with engine.connect() as c:
+            count = c.scalar(
+                text("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public'")
+            )
     if not count:
         initialize(test_url)
     yield
