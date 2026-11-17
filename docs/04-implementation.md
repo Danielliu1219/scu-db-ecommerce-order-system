@@ -64,13 +64,13 @@
 - ID、外键与version采用NUMERIC(20,0)+范围CHECK保持完整无符号64位API范围，ORM转换为Python int；常规生成ID使用独立BIGINT序列。文本使用ICU app_ci保留大小写/重音不敏感的查询及唯一性；token、摘要和状态使用C精确比较。时间为上海秒级TIMESTAMP，业务UPDATE在同事务写updated_at，不增触发器。
 - 已保留并迁移24用户、23分类、28商品、23购物车、1购物车明细、33订单、38订单明细、28库存、13支付。源与目标规范化逐行SHA-256均为f0f8ff987f1633c0f5b58f894304db00ecf6cab20cf4a30c31f48d255ffabd96，核对后才切换backend/.env；原数据目录及只读快照保留，真实配置/数据均不提交。
 - 项目隔离实例位于127.0.0.1:55432，系统既有数据库服务未操作。dev_postgres使用按工作区路径区分的临时数据目录，bootstrap只接受scu_ecommerce/scu_ecommerce_test并拒绝非空库；本次迁移库未运行seed/demo覆盖原数据。
-- 最终scripts/verify.ps1 -E2E -QueryPlans退出0：后端91项（19.57s）、前端30项、真实系统E2E 3项（9.1s）通过，Ruff/Prettier/类型/构建及13个只读查询计划场景通过。覆盖原生40P01死锁、55P03超时、40001重试、提交响应失联、分页快照、统计、ICU语义、最大ID/版本和初始化保护；远端CI结果在推送后单独核验。两次浏览器验收新增数据保留，原有九表记录复核仍逐行一致。
+- 最终scripts/verify.ps1 -E2E -QueryPlans退出0：后端91项（19.57s）、前端30项、真实系统E2E 3项（9.1s）通过，Ruff/Prettier/类型/构建及13个只读查询计划场景通过。覆盖原生40P01死锁、55P03超时、40001重试、提交响应失联、分页快照、统计、ICU语义、最大ID/版本和初始化保护；迁移提交d8b46c9的[远端CI](https://github.com/Danielliu1219/scu-db-ecommerce-order-system/actions/runs/44056471445)已success：PostgreSQL服务上91项后端及30项前端通过，含空测试库自动创建。两次浏览器验收新增数据保留，原有九表记录复核仍逐行一致。
 - 用户确认：仅同步AGENTS、README、docs/03、docs/04和当前限制说明；冻结报告、references、deliverables、assets/report、docs/02及scripts/data.py保留，历史日志只追加。旧引擎设计与核验记录保留在历史日志中，不改写为本次结果。
 
 ### 已完成的前端与交付工作
 
 - 游客仅匿名读商品/分类，购物车存浏览器；登录不自动合并，购物车页手动导入逐条复用现有接口，成功移除、失败保留并汇总。401清令牌后重载游客购物车，不将失败写入转换为游客加购。
-- GitHub Actions已正式启用，仅对main/codex/**触发应用检查，gh-pages只运行原生Pages部署。此前启用和分包提交的远端运行成功记录见PROJECT_LOG；当前工作流使用postgres:18，真实数据库结果单独验证。
+- GitHub Actions已正式启用，仅对main/codex/**触发应用检查，gh-pages只运行原生Pages部署。此前启用和分包提交的远端运行成功记录见PROJECT_LOG；当前工作流使用postgres:18，迁移远端运行44056471445已成功。
 - 分包无新增前端依赖；普通入口21.45kB、Vue vendor 114.33kB、Element Plus vendor 924.63kB。Pages入口18.68kB，Vue vendor 114.44kB；Element Plus仍超过500kB并保留告警，未调高阈值。页面路由保持动态导入。
 - Pages产物c2e995f，线上HTTP 200、4个入口资源SHA-256匹配，本地及线上游客各2项通过；地址https://danielliu1219.github.io/scu-db-ecommerce-order-system/，仅示例数据，无真实账号或交易。
 - 干净克隆演练的main SHA为77a954eca5f690176b18c510c64ccb2d89a1f235，安装、后端86项、前端30项、Ruff/格式/类型/构建通过；该结果属于迁移前版本，不充作当前数据库迁移验收。
