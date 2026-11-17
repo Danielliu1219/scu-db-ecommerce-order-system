@@ -45,6 +45,8 @@ npm --prefix frontend ci
 
 此辅助工具使用127.0.0.1:33316、临时目录下的独立数据目录，初始化本实例root随机口令并在不存在时写入本地.env；不操作原MySQL80服务。MySQL二进制不在默认位置时使用--bin指定其bin目录。Windows数据目录放在系统临时目录，避开中文路径兼容问题。
 
+注意：db.dev_mysql的RUNTIME目录固定为系统临时目录下的scu-ecommerce-dev-mysql，不随仓库或--port改变；不能在第二份克隆中用它创建并存实例。已有应用库禁止为交付演练重新运行下列bootstrap/seed/demo命令，也不要调用stop中断其他工作使用的实例。
+
 ```powershell
 & backend/.venv/Scripts/python.exe -m db.bootstrap
 & backend/.venv/Scripts/python.exe -m db.seed
@@ -88,6 +90,8 @@ npm --prefix frontend run build
 ```
 
 后端自动在独立scu_ecommerce_test空库初始化，按外键顺序清理测试数据；拒绝使用应用库。并发测试使用真实MySQL独立连接，不使用SQLite替代行锁。
+
+从main的干净克隆演练时，先按“安装”创建该克隆自己的venv并执行npm ci。若没有另一个独立MySQL实例，可仅在本机复制既有backend/.env到克隆目录，确认TEST_DATABASE_URL指向scu_ecommerce_test后运行本节检查；同一测试库不要同时运行多套pytest。此方式不运行bootstrap/seed/demo，不停止既有8000后端，跳过真实系统E2E；不能据此宣称新实例初始化或完整演示已通过。演练结束删除临时克隆，.env必须保持忽略且不提交。
 
 也可在项目根目录统一执行下列检查。脚本使用现有局部依赖，任一步失败即停止；不启动数据库、不提交代码。`-E2E`要求8000端口后端和seed已就绪，会创建验收数据；`-QueryPlans`只读检查隔离应用库。
 
