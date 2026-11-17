@@ -68,7 +68,7 @@ def test_serialization_empty_lists_and_no_content(client, accounts, goods, place
 
 
 def test_database_errors_do_not_leak_sql_or_credentials(client, accounts):
-    import pymysql
+    import psycopg
     from app.database import engine
     from sqlalchemy import event
     from sqlalchemy.exc import OperationalError
@@ -79,7 +79,7 @@ def test_database_errors_do_not_leak_sql_or_credentials(client, accounts):
 
     def reject(conn, cursor, statement, parameters, context, many):
         raise OperationalError(
-            "SELECT " + secret, {"password": secret}, pymysql.err.OperationalError(2013, secret)
+            "SELECT " + secret, {"password": secret}, psycopg.OperationalError(secret)
         )
 
     event.listen(engine, "before_cursor_execute", reject)

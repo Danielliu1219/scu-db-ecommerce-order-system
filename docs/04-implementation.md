@@ -1,16 +1,16 @@
 # 编码实施清单
 
-最后更新：2026-11-17。GitHub Actions已启用并通过远端验证，干净克隆检查与无新依赖分包已完成；这是唯一实施清单，接手时同时读取 AGENTS、docs/03 和 PROJECT_LOG 最新记录。
+最后更新：2026-11-17。按用户确认完成PostgreSQL迁移；仅更新当前实现与运行文档，冻结材料保留；这是唯一实施清单，接手时同时读取 AGENTS、docs/03 和 PROJECT_LOG 最新记录。
 
 ## 契约与边界
 
-- docs/03 是九表、DDL、接口、错误码、事务和统计口径的唯一实现契约，不改表。
+- docs/03 是九表业务模型、DDL、接口、错误码、事务和统计口径的唯一实现契约；物理DDL已按本轮授权迁移PostgreSQL，业务口径保持不变。
 - 报告、references、deliverables、assets/report、docs/02、scripts/data.py 只读。
-- 同步 FastAPI + SQLAlchemy 2 + PyMySQL；Pydantic 2；PyJWT HS256（2小时）；pwdlib Argon2id。
+- 同步 FastAPI + SQLAlchemy 2 + psycopg 3；Pydantic 2；PyJWT HS256（2小时）；pwdlib Argon2id。
 - Vue 3 + TypeScript + Element Plus + Router + Pinia + Vite；fetch；/api 原路径代理后端8000。
-- schema.sql 直接提取定稿 DDL，不使用迁移或 create_all；MySQL 8.0.16+，READ COMMITTED，Asia/Shanghai。
-- 身份查询短会话；业务写入口独立会话和完整事务；辅助函数不提交；1213/1205新会话整笔重试，最多3次。
-- 金额 Decimal/两位字符串；BIGINT ID和版本字符串；时间秒精度、+08:00。业务层校验角色与归属。
+- schema.sql 与docs/03一致，仅初始化空库，不使用create_all覆盖已有库；PostgreSQL 18+，READ COMMITTED，Asia/Shanghai。
+- 身份查询短会话；业务写入口独立会话和完整事务；辅助函数不提交；40P01/55P03/40001新会话整笔重试，最多3次。
+- 金额 Decimal/两位字符串；无符号64位ID和版本使用NUMERIC(20,0)+范围CHECK、接口字符串；时间秒精度、+08:00。业务层校验角色与归属。
 
 ## 文件职责
 
@@ -18,7 +18,7 @@
 - backend/app/api、schemas、services：identity(auth/users)、catalog、cart、orders、payments、inventory、statistics 各自对应路由、DTO和事务；不加 Repository 层。
 - frontend/src：api请求、types接口类型、stores身份、utils结算和格式、layouts角色导航、components订单和支付、views各FR页面。
 - db：schema.sql、bootstrap.py、seed.py、demo.py、queries/q1至q4；种子不覆盖已有数据，演示经业务服务生成。
-- tests：独立MySQL夹具、契约、九项FR、并发、重试；frontend/tests：客户端、身份、结算、库存、浏览器演示。
+- tests：独立PostgreSQL夹具、契约、九项FR、并发、重试；frontend/tests：客户端、身份、结算、库存、浏览器演示。
 
 ## 执行和验收
 
@@ -58,43 +58,24 @@
 
 ## 当前交接点（2026-11-17）
 
-### CI与交付演练
+### PostgreSQL迁移
 
-- 用户完成交互授权后确认workflow scope；原模板移动至.github/workflows/ci.yml，仅对main和codex/**的push/pull_request运行，不对gh-pages运行应用检查。首次[codex运行](https://github.com/Danielliu1219/scu-db-ecommerce-order-system/actions/runs/43693251563)与[main运行](https://github.com/Danielliu1219/scu-db-ecommerce-order-system/actions/runs/43693366838)均success，后端86项/前端30项通过；保留真实MySQL夹具与scu_ecommerce_test隔离规则。
-- main干净克隆SHA为77a954eca5f690176b18c510c64ccb2d89a1f235，按README安装venv/锁定依赖/editable后端/npm ci成功；verify.ps1退出0，后端86项、前端30项、Ruff/格式/类型/构建通过。只复用测试库，未运行bootstrap/seed/demo或真实系统E2E，未停止33316/8000。README补充固定RUNTIME不能跨克隆并存及安全演练限制。
-- 克隆.env未跟踪，34个构建文件未匹配本地口令/JWT。临时目录C:/Users/ltyco/AppData/Local/Temp/scu-delivery-1794730339866的递归删除及单独.env删除均被自动审批以“blocked by policy”拒绝，尚待用户手动清理，未换工具绕过。
+- 使用PostgreSQL 18.6与psycopg 3.3.9，九表实体、接口、错误码、业务状态和统计口径不变。数据库驱动、连接设置、DDL、SQL、事务SQLSTATE识别、EXPLAIN、真实数据库测试及CI服务均已迁移。
+- ID、外键与version采用NUMERIC(20,0)+范围CHECK保持完整无符号64位API范围，ORM转换为Python int；常规生成ID使用独立BIGINT序列。文本使用ICU app_ci保留大小写/重音不敏感的查询及唯一性；token、摘要和状态使用C精确比较。时间为上海秒级TIMESTAMP，业务UPDATE在同事务写updated_at，不增触发器。
+- 已保留并迁移24用户、23分类、28商品、23购物车、1购物车明细、33订单、38订单明细、28库存、13支付。源与目标规范化逐行SHA-256均为f0f8ff987f1633c0f5b58f894304db00ecf6cab20cf4a30c31f48d255ffabd96，核对后才切换backend/.env；原数据目录及只读快照保留，真实配置/数据均不提交。
+- 项目隔离实例位于127.0.0.1:55432，系统既有数据库服务未操作。dev_postgres使用按工作区路径区分的临时数据目录，bootstrap只接受scu_ecommerce/scu_ecommerce_test并拒绝非空库；本次迁移库未运行seed/demo覆盖原数据。
+- 最终scripts/verify.ps1 -E2E -QueryPlans退出0：后端91项（19.57s）、前端30项、真实系统E2E 3项（9.1s）通过，Ruff/Prettier/类型/构建及13个只读查询计划场景通过。覆盖原生40P01死锁、55P03超时、40001重试、提交响应失联、分页快照、统计、ICU语义、最大ID/版本和初始化保护；远端CI结果在推送后单独核验。两次浏览器验收新增数据保留，原有九表记录复核仍逐行一致。
+- 用户确认：仅同步AGENTS、README、docs/03、docs/04和当前限制说明；冻结报告、references、deliverables、assets/report、docs/02及scripts/data.py保留，历史日志只追加。旧引擎设计与核验记录保留在历史日志中，不改写为本次结果。
 
-### 构建与依赖告警
+### 已完成的前端与交付工作
 
-- vite.config.ts仅增加manualChunks，无新增依赖；普通构建入口从1060.21kB拆为21.45kB，Vue vendor 114.33kB、Element Plus vendor 924.63kB。Pages入口18.68kB，Vue vendor 114.44kB、Element Plus vendor 924.63kB；路由继续动态导入。总体下载量没有相应下降，Element Plus仍超过500kB并保留告警，未调高阈值。
-- 2026-11-17工作区verify.ps1退出0：后端86项、Vitest 30项、Ruff/格式/类型/构建通过；build:pages通过，本地Pages桌面/手机两项通过。真实系统E2E本轮跳过，不写应用库。
-- Pages按README重新发布至c2e995f；线上HTTP 200，入口JS、两个vendor及CSS与本地SHA-256相同，线上两项游客测试通过。普通/Pages入口仍分别有16/17个动态导入，base/hash深链正常；gh-pages仅触发原生pages-build-deployment并成功，未触发Application checks。
-- httpx锁定及实际版本0.28.1，pip index显示无更高稳定版，pip check通过；Starlette 1.10.0要求迁移至新包httpx2才能消除此弃用提示，本轮保留，不新增依赖或修改测试行为。
-- npm audit报告8项开发依赖漏洞（6 moderate、2 critical，涉及Vitest/tinypool等）；omit=dev审计0项。修复建议含Vitest大版本迁移，本轮未执行audit fix或force升级。另保留whatwg-encoding、lucide-vue-next弃用提示及Actions旧Node运行时/runner镜像提示。
-- 本地环境末次复核：上述测试通过后，33316只读连接被拒绝，8000亦不可连接；本轮未停止或重启服务。恢复时应用库九表摘要与上轮一致，但末次无法再读取，不能宣称交付时数据库服务在线。
+- 游客仅匿名读商品/分类，购物车存浏览器；登录不自动合并，购物车页手动导入逐条复用现有接口，成功移除、失败保留并汇总。401清令牌后重载游客购物车，不将失败写入转换为游客加购。
+- GitHub Actions已正式启用，仅对main/codex/**触发应用检查，gh-pages只运行原生Pages部署。此前启用和分包提交的远端运行成功记录见PROJECT_LOG；当前工作流使用postgres:18，真实数据库结果单独验证。
+- 分包无新增前端依赖；普通入口21.45kB、Vue vendor 114.33kB、Element Plus vendor 924.63kB。Pages入口18.68kB，Vue vendor 114.44kB；Element Plus仍超过500kB并保留告警，未调高阈值。页面路由保持动态导入。
+- Pages产物c2e995f，线上HTTP 200、4个入口资源SHA-256匹配，本地及线上游客各2项通过；地址https://danielliu1219.github.io/scu-db-ecommerce-order-system/，仅示例数据，无真实账号或交易。
+- 干净克隆演练的main SHA为77a954eca5f690176b18c510c64ccb2d89a1f235，安装、后端86项、前端30项、Ruff/格式/类型/构建通过；该结果属于迁移前版本，不充作当前数据库迁移验收。
 
-### 游客购物车集成
+### 保留事项
 
-- 登录不自动导入。普通用户购物车页仅在localStorage有游客条目时显示手动导入入口；逐条复用POST /cart/items合并数量，逐条清理成功记录，保留下架/缺货/已删除等失败记录并汇总提示。登录失效、网络中断或结果未知停止后续导入，不自动重发；导入过程中禁用重复点击和条目编辑。
-- 游客结算登录后返回购物车页，账号购物车保持独立。购物车读取401清令牌后重新读取游客购物车；仅对读取回退，不把失败写入转换为游客加购。
-- 实际执行scripts/verify.ps1 -E2E退出0：真实MySQL后端86项、Vitest 30项、真实系统E2E 3项通过；Ruff、格式、类型检查及构建通过。新增15项前端用例和1条真实游客链路，覆盖部分失败保留、重复点击、未知结果停止、401回退及导入前无服务端购物车写入。
-- 不新增依赖、后端接口或表，九表DDL、统计口径和错误码保持不变。按本轮授权仅提交相关前端、测试和必要文档，推送codex后合并main；冻结材料与历史未提交改动继续保留。
-
-### 2026-11-15 后端质量加固
-
-- 已完成订单分页跨语句状态失配和时区换算溢出修复，所有分页总数/当前页同语句读取；独立订单查询替代Q1字符串替换，库存计数移除占用聚合。九表DDL、接口路径和统计口径保持不变。
-- 2026-11-15实际执行verify.ps1 -E2E -QueryPlans：真实MySQL后端86项、前端15项、E2E两条通过，Ruff/格式/类型/构建通过；包含原生1205/1213、提交失联、并发分页、空页总数及统计边界测试。query_plan.py只读覆盖13个场景，不以全扫描判失败，目前没有加索引依据。
-- 前端三个文件在本轮开始时已通过格式检查，本轮未编辑前端文件。原有暂存内容及HEAD不变，未commit、push或重新发布Pages；完整命令和告警见PROJECT_LOG。
-- 2026-11-15用户确认保留游客只读方案：商品列表、详情、分类匿名可读，游客购物车仅存浏览器；docs/03 §9已同步，不新增角色或表。下方11月14日游客/Pages条目保留为当时记录。
-- 2026-11-15仓库状态：仓库为Public；main与codex的README均已加入展示站入口并推送；GitHub About的Website指向Pages。应用代码、测试及本文件其余改动已同步提交并推送，main已合并codex实现。
-
-### 2026-11-14 既有前端与Pages状态
-
-- 已上线：https://danielliu1219.github.io/scu-db-ecommerce-order-system/ 。仓库当前为Public，gh-pages仅发布前端产物，原生Pages构建状态built；GitHub仓库About的Website已设为同一地址。
-- 用户新增游客测试需求：商品列表、详情、分类匿名可读；游客购物车在浏览器持久保存，不扣库存、不自动合并到账号。不增加数据库角色或表，订单/支付/资料/管理接口继续鉴权。此明确授权覆盖docs/03原文中的商品登录要求，原文和冻结报告不改动。
-- 使用用户指定guizang-ppt-skill的Swiss/IKB视觉方向，适配Vue和Element Plus；仅借鉴设计规则，不复制PPT运行时代码。示意图为本地打包的Unsplash照片，来源随前端保留。
-- Pages明确使用示例数据，支持筛选、详情、购物车增删改勾选和清空；不提供真实注册/登录/交易，不包含后端口令或令牌。hash路由与base支持项目子路径。
-- 验证：真实MySQL后端43项、Vitest 15项、本地双角色交易2条、本地Pages游客2条、线上Pages游客2条通过；类型、格式和两种生产构建通过。39份冻结文件哈希不变。
-- 源码继续在codex/ecommerce-implementation；当前Pages产物提交75be60d。发布命令见README，frontend/scripts/publish_pages.py仅推送静态产物，现有Git权限即可发布，无需workflow scope。
-- 本地完整系统：http://127.0.0.1:8000；账号admin、demo_01至demo_03，密码在忽略的backend/.env。MySQL隔离端口33316，原MySQL80服务保持原状。完整交易测试保留。
-- 文档只维护本清单、README、Limitation和原日志，不新增计划/验收副本。历史中被策略拦截清理的失败初始化目录仍在忽略的预览区；自定义CI仍保留未启用模板。
+- 临时克隆C:/Users/ltyco/AppData/Local/Temp/scu-delivery-1794730339866及其中.env的删除被自动审批以“blocked by policy”拒绝，尚待用户手动清理；未用其他工具绕过，内容未提交。
+- httpx 0.28.1已是当前可用稳定版；Starlette要求迁移到httpx2才消除弃用提示，本轮保留提示，不改测试行为。npm audit的8项开发依赖漏洞（6 moderate、2 critical）涉及Vitest/tinypool等，omit=dev为0；未执行force升级或改变测试框架。Actions旧Node运行时/runner镜像提示及前端大包告警仍在。

@@ -5,7 +5,7 @@ from ..dependencies import require
 from ..errors import fail, integrity
 from ..models import CartItem, Category, Inventory, OrderItem, Product
 from ..queries import page_parts
-from ..transactions import mysql_code, read, write
+from ..transactions import constraint_name, read, sqlstate, write
 from ..value_types import money
 from .common import contains, paged
 
@@ -126,7 +126,7 @@ def save_category(actor, data, category_id=None):
     try:
         return write(change)
     except IntegrityError as exc:
-        if mysql_code(exc) == 1062 and "uk_category_name" in str(exc.orig):
+        if sqlstate(exc) == "23505" and constraint_name(exc) == "uk_category_name":
             fail("CATEGORY_NAME_EXISTS", 409)
         raise
 
@@ -146,7 +146,7 @@ def delete_category(actor, category_id):
     try:
         write(change)
     except IntegrityError as exc:
-        if mysql_code(exc) == 1451:
+        if sqlstate(exc) == "23503":
             fail("CATEGORY_IN_USE")
         raise
 
@@ -167,7 +167,7 @@ def create_product(actor, data):
     try:
         return write(lambda s: create_in_session(s, data))
     except IntegrityError as exc:
-        if mysql_code(exc) == 1452 and "fk_product_category" in str(exc.orig):
+        if sqlstate(exc) == "23503" and constraint_name(exc) == "fk_product_category":
             fail("CATEGORY_NOT_FOUND", 404)
         raise
 
@@ -194,7 +194,7 @@ def edit_product(actor, product_id, data):
     try:
         return write(change)
     except IntegrityError as exc:
-        if mysql_code(exc) == 1452 and "fk_product_category" in str(exc.orig):
+        if sqlstate(exc) == "23503" and constraint_name(exc) == "fk_product_category":
             fail("CATEGORY_NOT_FOUND", 404)
         raise
 
@@ -224,6 +224,6 @@ def delete_product(actor, product_id):
     try:
         write(change)
     except IntegrityError as exc:
-        if mysql_code(exc) == 1451:
+        if sqlstate(exc) == "23503":
             fail("PRODUCT_IN_USE")
         raise

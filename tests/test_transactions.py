@@ -1,4 +1,4 @@
-import pymysql
+import psycopg
 import pytest
 from app import transactions
 from app.database import SessionFactory
@@ -9,7 +9,7 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 
-@pytest.mark.parametrize("code", [1205, 1213])
+@pytest.mark.parametrize("code", ["55P03", "40P01", "40001"])
 def test_retry_rolls_back_whole_attempt_and_uses_fresh_session(monkeypatch, accounts, goods, code):
     sessions = []
     waits = []
@@ -23,7 +23,7 @@ def test_retry_rolls_back_whole_attempt_and_uses_fresh_session(monkeypatch, acco
             .values(available=Inventory.available - 1, version=Inventory.version + 1)
         )
         if len(sessions) < 3:
-            raise OperationalError("injected", {}, pymysql.err.OperationalError(code, "injected"))
+            raise OperationalError("injected", {}, psycopg.errors.lookup(code)("injected"))
         return "committed"
 
     assert transactions.write(operation) == "committed"
@@ -38,7 +38,7 @@ def test_retry_exhausted_has_no_partial_write(monkeypatch, accounts, goods):
 
     def operation(s):
         s.execute(update(Inventory).values(available=0))
-        raise OperationalError("injected", {}, pymysql.err.OperationalError(1213, "injected"))
+        raise OperationalError("injected", {}, psycopg.errors.DeadlockDetected("injected"))
 
     with pytest.raises(BusinessError) as error:
         transactions.write(operation)
@@ -56,7 +56,7 @@ def test_commit_response_lost_is_resolved_without_repeat(monkeypatch, accounts, 
         raise OperationalError(
             "COMMIT",
             {},
-            pymysql.err.OperationalError(2013, "lost response"),
+            psycopg.OperationalError("lost response"),
             connection_invalidated=True,
         )
 
@@ -87,7 +87,7 @@ def test_unknown_nonidempotent_operation_is_not_replayed(monkeypatch, accounts, 
         raise OperationalError(
             "COMMIT",
             {},
-            pymysql.err.OperationalError(2013, "lost response"),
+            psycopg.OperationalError("lost response"),
             connection_invalidated=True,
         )
 
@@ -102,19 +102,19 @@ def test_unknown_nonidempotent_operation_is_not_replayed(monkeypatch, accounts, 
     assert error.value.details == {"outcome": "UNKNOWN"} and len(calls) == 1
 
 
-def test_real_mysql_lock_timeout_rolls_back_before_retry(monkeypatch, accounts, goods):
+def test_real_postgresql_lock_timeout_rolls_back_before_retry(monkeypatch, accounts, goods):
     from sqlalchemy import text
 
     blocked, other = [int(p["id"]) for p in goods]
     sessions, codes = [], []
-    original_code = transactions.mysql_code
+    original_code = transactions.sqlstate
 
     def capture_code(exc):
         code = original_code(exc)
         codes.append(code)
         return code
 
-    monkeypatch.setattr(transactions, "mysql_code", capture_code)
+    monkeypatch.setattr(transactions, "sqlstate", capture_code)
     with SessionFactory() as blocker:
         blocker.scalar(select(Inventory).where(Inventory.product_id == blocked).with_for_update())
 
@@ -131,23 +131,16 @@ def test_real_mysql_lock_timeout_rolls_back_before_retry(monkeypatch, accounts, 
 
         def operation(s):
             sessions.append(s)
-            original_timeout = s.scalar(text("SELECT @@innodb_lock_wait_timeout"))
-            s.execute(text("SET SESSION innodb_lock_wait_timeout=1"))
-            try:
-                for pid in (other, blocked):
-                    s.execute(
-                        update(Inventory)
-                        .where(Inventory.product_id == pid)
-                        .values(available=Inventory.available - 1, version=Inventory.version + 1)
-                    )
-            finally:
+            s.execute(text("SET LOCAL lock_timeout = '1s'"))
+            for pid in (other, blocked):
                 s.execute(
-                    text("SET SESSION innodb_lock_wait_timeout=:timeout"),
-                    {"timeout": original_timeout},
+                    update(Inventory)
+                    .where(Inventory.product_id == pid)
+                    .values(available=Inventory.available - 1, version=Inventory.version + 1)
                 )
 
         transactions.write(operation)
-    assert codes == [1205] and len({id(s) for s in sessions}) == 2
+    assert codes == ["55P03"] and len({id(s) for s in sessions}) == 2
     with SessionFactory() as s:
         assert [(i.available, i.version) for i in s.scalars(select(Inventory))] == [
             (19, 2),
@@ -155,27 +148,27 @@ def test_real_mysql_lock_timeout_rolls_back_before_retry(monkeypatch, accounts, 
         ]
 
 
-def test_real_mysql_deadlock_retries_whole_transaction(monkeypatch, accounts, goods):
+def test_real_postgresql_deadlock_retries_whole_transaction(monkeypatch, accounts, goods):
     from concurrent.futures import ThreadPoolExecutor
     from threading import Barrier
 
     barrier = Barrier(2)
     codes, attempts = [], [[], []]
-    original_code = transactions.mysql_code
+    original_code = transactions.sqlstate
 
     def capture_code(exc):
         code = original_code(exc)
         codes.append(code)
         return code
 
-    monkeypatch.setattr(transactions, "mysql_code", capture_code)
+    monkeypatch.setattr(transactions, "sqlstate", capture_code)
     monkeypatch.setattr(transactions.time, "sleep", lambda _: None)
     ids = [int(p["id"]) for p in goods]
 
     def participant(index):
         def operation(s):
             attempts[index].append(s)
-            # Deliberately reverse locks only in this test to exercise native 1213.
+            # Deliberately reverse locks only in this test to exercise native 40P01.
             for position, pid in enumerate(ids if index == 0 else ids[::-1]):
                 s.execute(
                     update(Inventory)
@@ -191,7 +184,7 @@ def test_real_mysql_deadlock_retries_whole_transaction(monkeypatch, accounts, go
         futures = [pool.submit(participant, index) for index in range(2)]
         for future in futures:
             future.result(timeout=20)
-    assert codes == [1213]
+    assert codes == ["40P01"]
     assert sorted(len(attempt) for attempt in attempts) == [1, 2]
     assert all(len({id(s) for s in attempt}) == len(attempt) for attempt in attempts)
     with SessionFactory() as s:
@@ -241,7 +234,7 @@ def test_business_commit_response_loss_returns_original_fact(
             raise OperationalError(
                 "COMMIT",
                 {},
-                pymysql.err.OperationalError(2013, "lost"),
+                psycopg.OperationalError("lost"),
                 connection_invalidated=True,
             )
 
@@ -268,7 +261,7 @@ def test_checkout_unknown_without_committed_fact_does_not_retry(monkeypatch, acc
     def no_commit(self):
         attempts.append(1)
         raise OperationalError(
-            "COMMIT", {}, pymysql.err.OperationalError(2013, "lost"), connection_invalidated=True
+            "COMMIT", {}, psycopg.OperationalError("lost"), connection_invalidated=True
         )
 
     monkeypatch.setattr(Session, "commit", no_commit)
@@ -300,7 +293,7 @@ def test_stock_commit_response_loss_is_503_and_old_version_cannot_restock_twice(
     def lost(self):
         original(self)
         raise OperationalError(
-            "COMMIT", {}, pymysql.err.OperationalError(2013, "lost"), connection_invalidated=True
+            "COMMIT", {}, psycopg.OperationalError("lost"), connection_invalidated=True
         )
 
     monkeypatch.setattr(Session, "commit", lost)

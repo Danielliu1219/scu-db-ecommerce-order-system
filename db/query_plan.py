@@ -31,13 +31,22 @@ def main():
     from app.services import catalog, identity, inventory, orders, statistics
 
     def read_only(dbapi, record, proxy):
-        with dbapi.cursor() as cursor:
-            cursor.execute("SET SESSION TRANSACTION READ ONLY")
+        original = dbapi.autocommit
+        dbapi.autocommit = True
+        try:
+            with dbapi.cursor() as cursor:
+                cursor.execute("SET default_transaction_read_only = on")
+        finally:
+            dbapi.autocommit = original
 
     event.listen(engine, "checkout", read_only)
     try:
         with engine.connect() as connection:
-            current = connection.scalar(text("SELECT NOW()"))
+            current = connection.scalar(
+                text(
+                    "SELECT date_trunc('second', statement_timestamp() AT TIME ZONE 'Asia/Shanghai')"
+                )
+            )
             uid = (
                 connection.scalar(
                     text(
@@ -56,12 +65,12 @@ def main():
                 text("SELECT id, category_id FROM product ORDER BY id LIMIT 1")
             ).first()
             pid, category_id = product if product else (0, 0)
-            readonly = bool(connection.scalar(text("SELECT @@transaction_read_only")))
+            readonly = connection.scalar(text("SHOW transaction_read_only")) == "on"
             if not readonly:
                 raise RuntimeError("Read-only transaction configuration was not applied")
             evidence = {
                 "database": engine.url.database,
-                "mysql_version": connection.scalar(text("SELECT VERSION()")),
+                "postgresql_version": connection.scalar(text("SHOW server_version")),
                 "read_only": readonly,
                 "as_of": str(current),
                 "row_counts": {
@@ -117,31 +126,36 @@ def main():
             plans = []
             with engine.connect() as connection:
                 for statement, parameters in statements:
-                    rows = connection.exec_driver_sql("EXPLAIN " + statement, parameters).mappings()
-                    plans.append(
-                        [
+                    plan = connection.exec_driver_sql(
+                        "EXPLAIN (FORMAT JSON) " + statement, parameters
+                    ).scalar_one()[0]["Plan"]
+                    nodes = []
+
+                    def collect(node):
+                        nodes.append(
                             {
-                                key: row[key]
-                                for key in (
-                                    "select_type",
-                                    "table",
-                                    "type",
-                                    "key",
-                                    "rows",
-                                    "filtered",
-                                    "Extra",
-                                )
+                                "node_type": node["Node Type"],
+                                "relation": node.get("Relation Name"),
+                                "index": node.get("Index Name"),
+                                "plan_rows": node.get("Plan Rows"),
+                                "strategy": node.get("Strategy"),
+                                "sort_keys": node.get("Sort Key", []),
                             }
-                            for row in rows
-                        ]
-                    )
+                        )
+                        for child in node.get("Plans", []):
+                            collect(child)
+
+                    collect(plan)
+                    plans.append(nodes)
             evidence["queries"].append(
                 {"name": name, "select_count": len(statements), "plans": plans}
             )
         if args.json:
             print(json.dumps(evidence, ensure_ascii=False, indent=2))
         else:
-            print(f"MySQL {evidence['mysql_version']} / {evidence['database']} / READ ONLY")
+            print(
+                f"PostgreSQL {evidence['postgresql_version']} / {evidence['database']} / READ ONLY"
+            )
             print(f"as_of={current}; rows are optimizer estimates; no scan-type pass/fail rule")
             print("Table counts: " + json.dumps(evidence["row_counts"]))
             for query in evidence["queries"]:
@@ -149,8 +163,9 @@ def main():
                 for number, plan in enumerate(query["plans"], 1):
                     for row in plan:
                         print(
-                            f"  {number} {row['table'] or '-'}: {row['type'] or '-'} "
-                            f"key={row['key'] or '-'} rows={row['rows']} {row['Extra'] or ''}"
+                            f"  {number} {row['relation'] or '-'}: {row['node_type']} "
+                            f"index={row['index'] or '-'} rows={row['plan_rows']} "
+                            f"strategy={row['strategy'] or '-'} sort={row['sort_keys']}"
                         )
     except (SQLAlchemyError, BusinessError) as exc:
         # DBAPI exceptions may contain SQL parameters and connection credentials.

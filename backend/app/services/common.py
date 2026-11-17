@@ -1,8 +1,10 @@
-from sqlalchemy import func, select
+from sqlalchemy import text
 
 
 def now(session, previous=None):
-    current = session.scalar(select(func.now()))
+    current = session.scalar(
+        text("SELECT date_trunc('second', statement_timestamp() AT TIME ZONE 'Asia/Shanghai')")
+    )
     return max(current, previous) if previous is not None else current
 
 

@@ -1,1 +1,1 @@
-"""Real MySQL acceptance tests."""
+"""Real PostgreSQL acceptance tests."""

@@ -9,7 +9,7 @@ FROM orders AS o
 JOIN users AS u ON u.id = o.user_id
 JOIN order_item AS oi ON oi.order_id = o.id
 LEFT JOIN payment AS p ON p.order_id = o.id
-WHERE (:user_id IS NULL OR o.user_id = :user_id)
-  AND (:status IS NULL OR o.status = :status)
+WHERE (CAST(:user_id AS NUMERIC(20,0)) IS NULL OR o.user_id = CAST(:user_id AS NUMERIC(20,0)))
+  AND (CAST(:status AS VARCHAR(12)) IS NULL OR o.status = CAST(:status AS VARCHAR(12)))
   AND o.created_at >= :start_at AND o.created_at < :end_at
 ORDER BY o.created_at DESC, o.id DESC, oi.id ASC;

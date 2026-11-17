@@ -6,7 +6,7 @@ from ..errors import fail, integrity
 from ..models import Cart, User
 from ..queries import page_parts
 from ..security import check_password, hash_password, token
-from ..transactions import mysql_code, read, write
+from ..transactions import constraint_name, read, sqlstate, write
 from .common import contains, paged
 
 DUMMY_HASH = hash_password("UnusedAccountTiming2026!")
@@ -45,7 +45,7 @@ def register(data):
     try:
         return write(lambda s: public(create(s, data.username, encoded, data.nickname, data.phone)))
     except IntegrityError as exc:
-        if mysql_code(exc) == 1062 and "uk_users_username" in str(exc.orig):
+        if sqlstate(exc) == "23505" and constraint_name(exc) == "uk_users_username":
             fail("USERNAME_EXISTS", 409, "用户名已存在")
         raise
 

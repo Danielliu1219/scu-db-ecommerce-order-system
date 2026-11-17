@@ -480,3 +480,19 @@ python scripts/build_deliverables.py --skip-images --no-preview
 - httpx锁定/实际0.28.1，pip index versions httpx仍为最新版，pip check通过；实际Starlette 1.10.0源码在没有httpx2时发出该弃用提示。按用户允许保留告警，不添加新包、不改测试行为。其余保留的提示包括npm开发依赖审计、whatwg-encoding/lucide-vue-next弃用及Actions旧Node运行时和runner镜像提示。
 - 按README执行publish_pages.py --skip-build退出0，gh-pages产物提交c2e995f205c4a6c1ab690820d7a8eeb2b4356ceb，GitHub Pages状态built。线上首页和4个入口资源均HTTP 200，JS入口/两个vendor/CSS与本地SHA-256一致；PAGES_BASE_URL指向线上后test:pages两项通过（30.1s）。普通构建/Pages仍分别包含16/17个动态import；base/hash深链与游客行为验证通过。gh-pages只运行原生pages-build-deployment（44046913746成功），Application checks分支过滤生效。
 - 最终dist的36个文件及dist-pages的37个文件未匹配本地数据库口令、JWT或账号口令。测试通过后的应用库只读复核连接33316报2003/WinError 10061，随后33316和8000探测均不可连接；未执行stop或重启，末次数据库摘要未能重取，此环境状态不替代或抹去先前真实通过结果。
+
+
+---
+
+## 2026年11月17日 PostgreSQL迁移与原数据保留
+
+- 用户在既有CI/交付任务上明确要求整体迁移PostgreSQL，并确认仅更新当前实现与运行文档、冻结材料保留，已有账号/商品/订单必须保留；随后再次授权完成后更新GitHub。迁移前应用检查基线为86项后端、30项前端通过，分包提交e5d7a7c的codex运行44047729455及main合并c280ee2的运行44048120248均success。此后迁移独立提交，不混入既有报告阶段未提交文件。
+- 审查后替换数据库方言、连接、九表物理DDL、初始化/隔离实例工具、四条契约查询、事务错误识别、真实数据库夹具、EXPLAIN及CI服务。新增项目局部psycopg/psycopg-binary 3.3.9，替换PyMySQL依赖并更新锁文件；本机使用PostgreSQL 18.6。保留九表业务实体、接口、错误码、状态机和统计口径；金额仍为DECIMAL(10,2)，ID/版本使用NUMERIC(20,0)+范围CHECK保持无符号64位接口，普通自动ID用BIGINT序列。ICU app_ci保留大小写/重音不敏感查询，C排序规则保留token/状态精确比较；18版提供非确定性排序规则LIKE支持。业务时间取上海秒级statement_timestamp并截断，updated_at在业务事务内写入，不新增触发器。
+- 新的db.dev_postgres按工作区路径区分临时集群，监听127.0.0.1:55432，SCRAM随机口令，不注册/改变系统服务。db.bootstrap仅接受scu_ecommerce或scu_ecommerce_test，拒绝非空库，DDL在事务中执行。CI改为postgres:18，测试夹具自动创建空测试库并按原隔离规则清理；重试识别40P01/55P03/40001，最多3次新会话整笔回滚重试；提交响应失联沿用先核对事实及不可判定503的规则。
+- 旧33316隔离实例先前不可连接，本次使用原dev_mysql工具启动既有数据目录以只读提取，没有初始化或重置源数据，系统MySQL80及既有PostgreSQL服务未操作。源库在REPEATABLE READ只读快照提取九表：users24、category23、product28、cart23、cart_item1、orders33、order_item38、inventory28、payment13。按外键拓扑顺序导入新库、恢复序列，源与目标全部字段规范化JSON的SHA-256均为f0f8ff987f1633c0f5b58f894304db00ecf6cab20cf4a30c31f48d255ffabd96，核对后才切换backend/.env。旧数据目录、源快照和旧配置备份保留在本地；未在迁移应用库执行seed/demo，未提交真实配置或业务数据。
+- 迁移中首个一次性导入因JSON键排序导致cart早于users写入而触发外键失败，整笔事务回滚；改为metadata外键顺序后成功。一次pytest在配置尚未切换时发生5个数据库连接setup错误；切换后一次DDL类型文本比较失败（86 passed、1 failed），修正PG TIMESTAMP反射比较及ORM类型后通过。均为开发过程真实失败，不计作最终通过；未造成部分应用数据写入。
+- 新增tests/test_postgresql.py四项：ICU大小写/重音唯一与字面搜索、最大无符号ID/版本精确返回及越界回滚、updated_at业务事务更新、已有库初始化保护；事务重试参数补40001一项，原生超时/死锁用真实PostgreSQL连接重验，其他原有业务回归全部保留。
+- 最终powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/verify.ps1 -E2E -QueryPlans退出0：pytest **91 passed、1 warning（19.57s）**，Ruff通过，Prettier通过，Vitest **30 passed**，TypeScript/Vite构建通过（6.99s），Playwright真实系统 **3 passed（9.1s）**，Q1至Q4及主要分页共13个查询计划场景全部成功。pip check无依赖冲突。保留Starlette/httpx弃用、大于500kB vendor及Playwright颜色环境提示。第一次完整检查输出未能保留在恢复上下文中，因此重新执行并保存忽略日志postgresql-verify.log；不将丢失输出当作已记录的验收。
+- 只读EXPLAIN (FORMAT JSON)为PostgreSQL 18.6、30用户/36商品/39订单/44明细/15支付样本。Q1使用idx_orders_created、用户主键及明细/支付唯一索引，扫描节点估计各1行，无Sort；Q2/Q3支付时间使用idx_payment_paid_order的Bitmap Index Scan，支付估计4行，分别有1/2个Sort和Sorted聚合；Q2订单Seq Scan估计3行，Q3明细Seq Scan估计250行（实际44行，刚导入的小表统计估计偏差）。Q4使用idx_users_role_created与idx_orders_created，有1个Sort。订单页使用idx_orders_user_created/idx_orders_status_created；商品页使用状态价格索引，关键词有Seq Scan；库存页小表Seq Scan并按待支付订单索引聚合；用户页使用角色索引。各普通分页1条SELECT；未下单用户另有1条取as_of语句，总数与当前页仍同一SELECT。计划只输出估计行数、索引、Sort/Aggregate节点，未执行EXPLAIN ANALYZE或写入ANALYZE；小数据顺序扫描/排序不直接判失败，本轮不新增业务索引。
+- 两次浏览器验收合计新增6用户/购物车、6分类、8商品/库存、6订单/明细、2支付、2购物车明细；全部保留。最终按原ID逐行比较九表原始记录，仍全部相同且摘要不变。后端8000已在新的55432 PostgreSQL上运行，原隔离数据保留。
+- 当前AGENTS、README、docs/03、docs/04、Limitation已同步。全文检索当前代码/测试/运行文档未发现旧引擎依赖，旧名称只保留于冻结报告与历史日志。206份基线文件哈希复核：变动仅为授权实现/运行文件及已提交分包工作，冻结材料及原报告阶段工作未变；.env、旧配置、数据快照、构建与本地验收材料均忽略。远端迁移CI将在推送后记录实际结论。

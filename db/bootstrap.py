@@ -2,7 +2,6 @@
 
 import argparse
 import os
-import re
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -17,23 +16,38 @@ def initialize(url_string):
     name = url.database
     if name not in ("scu_ecommerce", "scu_ecommerce_test"):
         raise ValueError("Only scu_ecommerce or scu_ecommerce_test may be initialized")
-    engine = create_engine(url.set(database=""), isolation_level="AUTOCOMMIT")
+    if url.drivername != "postgresql+psycopg":
+        raise ValueError("PostgreSQL with psycopg is required")
+    engine = create_engine(url.set(database="postgres"), isolation_level="AUTOCOMMIT")
     try:
         with engine.connect() as conn:
-            version = conn.scalar(text("SELECT VERSION()"))
-            if tuple(map(int, version.split("-")[0].split(".")[:3])) < (8, 0, 16):
-                raise ValueError("MySQL 8.0.16+ required")
-            existing = conn.scalar(
-                text("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=:name"),
+            version = int(conn.scalar(text("SHOW server_version_num")))
+            if version < 180000:
+                raise ValueError("PostgreSQL 18+ required (ICU-insensitive LIKE support)")
+            exists = conn.scalar(
+                text("SELECT COUNT(*) FROM pg_database WHERE datname=:name"),
                 {"name": name},
             )
-            if existing:
-                raise ValueError("Target database is not empty; schema was not changed")
-            ddl = (ROOT / "db/schema.sql").read_text(encoding="utf-8")
-            ddl = re.sub(r"\bscu_ecommerce\b", name, ddl)
-            for statement in ddl.split(";"):
-                if statement.strip():
-                    conn.exec_driver_sql(statement.strip())
+            if not exists:
+                conn.exec_driver_sql(
+                    f"CREATE DATABASE \"{name}\" ENCODING 'UTF8' TEMPLATE template0"
+                )
+        target = create_engine(url)
+        try:
+            with target.begin() as conn:
+                existing = conn.scalar(
+                    text(
+                        "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public'"
+                    )
+                )
+                if existing:
+                    raise ValueError("Target database is not empty; schema was not changed")
+                ddl = (ROOT / "db/schema.sql").read_text(encoding="utf-8")
+                for statement in ddl.split(";"):
+                    if statement.strip():
+                        conn.exec_driver_sql(statement.strip())
+        finally:
+            target.dispose()
     finally:
         engine.dispose()
 

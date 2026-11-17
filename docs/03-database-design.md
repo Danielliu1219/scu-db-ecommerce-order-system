@@ -1,8 +1,8 @@
 # 电商订单管理系统数据库详细设计
 
-编写日期：2026年11月13日。本文供第20组编码前核对表结构、接口和事务使用，不改写现有课程报告。设计依据为教师大作业原件、`scripts/data.py`、当前课程报告DOCX及`docs/02-course-report.md`的2.3至2.5节；功能编号和业务含义沿用FR-01至FR-09。
+初稿日期：2026年11月13日；当前实现更新：2026年11月17日。经用户确认迁移为PostgreSQL，仅同步当前实现与运行文档，冻结课程报告保持原样。设计依据为教师大作业原件、`scripts/data.py`、当前课程报告DOCX及`docs/02-course-report.md`的2.3至2.5节；功能编号和业务含义沿用FR-01至FR-09。
 
-本文确定使用九张表、单字段可售库存、仅用户手动取消待支付订单、用户维度的结算幂等，以及MySQL行锁配合库存版本号。下面的DDL是设计文档的一部分；业务代码、实际部署库和课程报告排版均不在本次交付中。
+本文确定使用九张表、单字段可售库存、仅用户手动取消待支付订单、用户维度的结算幂等，以及PostgreSQL行锁配合库存版本号。下面的DDL与db/schema.sql一致，九项业务功能、接口及统计口径保持不变。
 
 ## 1 设计决策
 
@@ -34,12 +34,12 @@
 
 ### 1.3 订单号和结算幂等
 
-`orders.id`为`BIGINT UNSIGNED AUTO_INCREMENT`主键，也就是报告中的订单编号和对外订单号，不另建`order_no`。支付编号同理为`payment.id`。HTTP/JSON中所有BIGINT标识和库存版本以十进制字符串传输，避免JavaScript整数精度损失；不依赖编号连续或无间隙，回滚可消耗自增号。
+`orders.id`为`NUMERIC(20,0)`加序列默认值主键，也就是报告中的订单编号和对外订单号，不另建`order_no`。支付编号同理为`payment.id`。HTTP/JSON中所有大整数标识和库存版本以十进制字符串传输，避免JavaScript整数精度损失；不依赖编号连续或无间隙，回滚可消耗自增号。
 
 | 项目 | 确定规则 |
 | --- | --- |
 | checkout_token生成方 | 普通用户前端在一次结算确认开始时用`crypto.getRandomValues`生成16个随机字节，编码为32个小写十六进制字符，共128位随机值 |
-| 请求和存储 | `POST /orders`必填；服务端校验`^[0-9a-f]{32}$`；存`CHAR(32)`，按二进制排序规则比较，不能用时间戳或商品ID代替随机值 |
+| 请求和存储 | `POST /orders`必填；服务端校验`^[0-9a-f]{32}$`；存`CHAR(32)`，按确定性C排序规则比较，不能用时间戳或商品ID代替随机值 |
 | 唯一性 | `UNIQUE(user_id, checkout_token)`，同用户同token最多一个订单；不同用户空间独立 |
 | 请求摘要 | 服务端对规范化的用户ID、条目ID及预期数量、收货人、电话、地址计算SHA-256，存64位小写十六进制`checkout_request_hash`；不含token、商品现价和服务端生成时间 |
 | 相同token相同摘要 | 返回原订单、明细和最新可读取状态；不重新读购物车建单、不重新核价扣库存。即使已支付、完成或取消也返回原订单 |
@@ -51,83 +51,85 @@
 
 规范化由服务端统一完成：用户ID及条目ID转为无前导零十进制字符串，数量为JSON整数；所有文本去除首尾空白，Unicode统一NFC，内部空白保留；条目ID去重校验后按数字升序排列。用于散列的JSON键按固定次序`user_id, items, receiver_name, receiver_phone, receiver_address`输出；每个item键依次`cart_item_id, quantity`，UTF-8编码、不转义非ASCII字符、无额外空格。前端不自行计算可信摘要。重复条目、未知字段、格式非法或空收货信息先拒绝，金额不从客户端接受。
 
-相同用户的购物车父行充当结算互斥锁。获取该锁后再次查询token，先处理已存在的订单，再检查购物车；因此第一笔成功清空已结算条目后，第二笔同token请求仍能返回原单。重放结果用同一条SELECT关联订单、明细和支付取得一致的语句快照，避免READ COMMITTED下分次读到“旧待支付状态加新支付记录”。唯一索引是数据库的最后保护；遇该索引1062时整个事务回滚，再按`user_id + token`查询并比对摘要，不把其他唯一键冲突误当成功。
+相同用户的购物车父行充当结算互斥锁。获取该锁后再次查询token，先处理已存在的订单，再检查购物车；因此第一笔成功清空已结算条目后，第二笔同token请求仍能返回原单。重放结果用同一条SELECT关联订单、明细和支付取得一致的语句快照，避免READ COMMITTED下分次读到“旧待支付状态加新支付记录”。唯一索引是数据库的最后保护；遇该索引23505时整个事务回滚，再按`user_id + token`查询并比对摘要，不把其他唯一键冲突误当成功。
 
 ## 2 数据类型和完整性分工
 
-数据库为MySQL 8.0.16及以上版本，推荐8.0.40；8.0.16起CHECK才实际执行。全部表使用InnoDB、utf8mb4，默认排序规则`utf8mb4_0900_ai_ci`；token、摘要、角色和状态单列使用`utf8mb4_bin`作精确比较。用户名只接受3至32位小写ASCII字母、数字和下划线，注册和登录统一去首尾空格并转小写；分类名去首尾空格后按默认排序规则唯一，不设置父分类。
+数据库为PostgreSQL 18及以上，使用UTF8与READ COMMITTED。18版支持非确定性ICU排序规则的LIKE匹配；分类名、商品名等可检索文本使用`app_ci`（`und-u-ks-level1`、deterministic=false）保持大小写和重音不敏感的查询与唯一性。token、摘要、角色和状态使用确定性`C`排序规则精确比较。用户名仍只接受3至32位小写ASCII字母、数字和下划线，注册和登录统一去首尾空格并转小写；分类名去首尾空格后唯一，不设置父分类。
+
+为保持既有API的无符号64位范围，ID、外键与库存version使用`NUMERIC(20,0)`加范围CHECK：ID为1至18,446,744,073,709,551,615，version为0至该上限；ORM精确转为Python int，JSON始终使用字符串。九张表各用独立BIGINT序列产生常规ID（自动生成范围至9,223,372,036,854,775,807），显式导入的ID可覆盖完整无符号范围；序列值不保证连续，导入后恢复到已用ID之后，不能向已有表重复导入。
 
 金额、单价使用`DECIMAL(10,2)`，取值0.01至99,999,999.99元；不用浮点数。数量一律有符号`INT`，购买量大于0，available不小于0，上限2,147,483,647。合计用Decimal或更宽的数据库精确类型计算，确认总额不超DECIMAL范围再写入；补货、回补也先检查INT上界，超界整笔回滚并返回`QUANTITY_OVERFLOW`，不能截断或丢弃回补量。此时管理员先按实际可售口径核对并修正库存，再由用户重试取消。
 
-所有时间列为`DATETIME`，秒级精度，保存Asia/Shanghai本地墙钟时间，不隐式保存UTC。数据库连接统一`SET time_zone='+08:00'`（无需安装命名时区表），应用配置使用`Asia/Shanghai`；API输出带`+08:00`的ISO 8601时间，带其他偏移的输入先转为该时区再去偏移绑定。一次状态变更从数据库取一次`NOW()`，必要时与前置事件时间取较大值，防止时钟回拨造成时间倒序。同秒的连续事件允许相等。
+所有时间列为`TIMESTAMP(0) WITHOUT TIME ZONE`，秒级精度，保存Asia/Shanghai本地墙钟时间，不隐式保存UTC。连接设置`TimeZone=Asia/Shanghai`；接口输出带`+08:00`，其他偏移输入先转为该时区再去偏移绑定。默认值和业务取时采用`date_trunc('second', statement_timestamp() AT TIME ZONE 'Asia/Shanghai')`，截断而非四舍五入，使用当前语句时刻而不是事务开始时刻。状态变更一次取时，必要时与前置事件时间取较大值，同秒事件允许相等。`updated_at`由业务UPDATE或ORM onupdate在同一事务设置，不增加数据库触发器；禁止绕过业务事务直接写表。
 
-DDL负责行内合法值、非空、主外键、唯一性和状态时间组合。普通用户恰有一个购物车、每商品恰有库存、订单至少一条明细、总额等于明细和、支付金额及时间与订单相等、跨表角色范围和合法的前后状态迁移，均由下文同一事务负责；MySQL CHECK不能查询其他表，不宣称DDL独自保证这些条件。不增加触发器、存储过程或第十张业务表。业务写入只能经统一事务入口，不能把数据库直连改表当接口。
+DDL负责行内合法值、非空、主外键、唯一性和状态时间组合。普通用户恰有一个购物车、每商品恰有库存、订单至少一条明细、总额等于明细和、支付金额及时间与订单相等、跨表角色范围和合法的前后状态迁移，均由下文同一事务负责；PostgreSQL CHECK不能查询其他表，不宣称DDL独自保证这些条件。不增加触发器、存储过程或第十张业务表。业务写入只能经统一事务入口，不能把数据库直连改表当接口。
 
 ## 3 九张表字段字典
 
-“必填”表示NOT NULL且无业务默认值；`AI`表示自动增长；`NOW`表示`CURRENT_TIMESTAMP`。未列入可空列的字段均NOT NULL。外键、索引及完整CHECK以第4节DDL为准。
+“必填”表示NOT NULL且无业务默认值；`AI`表示序列默认值；`NOW`表示上述上海时区秒级语句时间。未列入可空列的字段均NOT NULL。外键、索引及完整CHECK以第4节DDL为准。
 
 ### 3.1 users 用户
 
 | 字段 | 类型 | 可空 | 默认 | 含义与约束 |
 | --- | --- | --- | --- | --- |
-| id | BIGINT UNSIGNED | 否 | AI | 用户编号，PK |
+| id | NUMERIC(20,0) | 否 | AI | 用户编号，PK |
 | username | VARCHAR(32) | 否 | 必填 | 用户名，UNIQUE；规范化后3至32位 |
 | password_hash | VARCHAR(255) | 否 | 必填 | 带盐密码哈希编码，采用Argon2id，不保存明文 |
 | role | VARCHAR(10) | 否 | USER | USER普通用户、ADMIN管理员；注册强制USER |
 | nickname | VARCHAR(50) | 否 | 必填 | 昵称，非空白 |
 | phone | VARCHAR(20) | 否 | 必填 | 联系电话，文本保留前导零和区号 |
-| created_at | DATETIME | 否 | NOW | 创建时间 |
-| updated_at | DATETIME | 否 | NOW并自动更新 | 最近资料变更 |
+| created_at | TIMESTAMP(0) | 否 | NOW | 创建时间 |
+| updated_at | TIMESTAMP(0) | 否 | NOW；业务写入同步更新 | 最近资料变更 |
 
 ### 3.2 category 商品分类
 
 | 字段 | 类型 | 可空 | 默认 | 含义与约束 |
 | --- | --- | --- | --- | --- |
-| id | BIGINT UNSIGNED | 否 | AI | 分类编号，PK |
+| id | NUMERIC(20,0) | 否 | AI | 分类编号，PK |
 | name | VARCHAR(50) | 否 | 必填 | 单层分类名称，UNIQUE，非空白 |
-| created_at | DATETIME | 否 | NOW | 创建时间 |
-| updated_at | DATETIME | 否 | NOW并自动更新 | 更新时间 |
+| created_at | TIMESTAMP(0) | 否 | NOW | 创建时间 |
+| updated_at | TIMESTAMP(0) | 否 | NOW；业务写入同步更新 | 更新时间 |
 
 ### 3.3 product 商品
 
 | 字段 | 类型 | 可空 | 默认 | 含义与约束 |
 | --- | --- | --- | --- | --- |
-| id | BIGINT UNSIGNED | 否 | AI | 商品编号，PK |
-| category_id | BIGINT UNSIGNED | 否 | 必填 | FK到category.id |
+| id | NUMERIC(20,0) | 否 | AI | 商品编号，PK |
+| category_id | NUMERIC(20,0) | 否 | 必填 | FK到category.id |
 | name | VARCHAR(100) | 否 | 必填 | 商品名称，不作唯一标识 |
 | price | DECIMAL(10,2) | 否 | 必填 | 当前售价，大于0 |
 | description | TEXT | 否 | 必填 | 商品介绍，允许空字符串，不允许NULL |
 | status | VARCHAR(10) | 否 | OFF_SHELF | ON_SHELF上架、OFF_SHELF下架 |
-| created_at | DATETIME | 否 | NOW | 创建时间 |
-| updated_at | DATETIME | 否 | NOW并自动更新 | 最近资料变更 |
+| created_at | TIMESTAMP(0) | 否 | NOW | 创建时间 |
+| updated_at | TIMESTAMP(0) | 否 | NOW；业务写入同步更新 | 最近资料变更 |
 
 ### 3.4 cart 购物车
 
 | 字段 | 类型 | 可空 | 默认 | 含义与约束 |
 | --- | --- | --- | --- | --- |
-| id | BIGINT UNSIGNED | 否 | AI | 购物车编号，PK |
-| user_id | BIGINT UNSIGNED | 否 | 必填 | FK到users.id，UNIQUE；必须属于USER |
-| created_at | DATETIME | 否 | NOW | 注册事务内创建，管理员无此记录 |
+| id | NUMERIC(20,0) | 否 | AI | 购物车编号，PK |
+| user_id | NUMERIC(20,0) | 否 | 必填 | FK到users.id，UNIQUE；必须属于USER |
+| created_at | TIMESTAMP(0) | 否 | NOW | 注册事务内创建，管理员无此记录 |
 
 ### 3.5 cart_item 购物车明细
 
 | 字段 | 类型 | 可空 | 默认 | 含义与约束 |
 | --- | --- | --- | --- | --- |
-| id | BIGINT UNSIGNED | 否 | AI | 条目编号，PK |
-| cart_id | BIGINT UNSIGNED | 否 | 必填 | FK到cart.id |
-| product_id | BIGINT UNSIGNED | 否 | 必填 | FK到product.id；同车同商品UNIQUE |
+| id | NUMERIC(20,0) | 否 | AI | 条目编号，PK |
+| cart_id | NUMERIC(20,0) | 否 | 必填 | FK到cart.id |
+| product_id | NUMERIC(20,0) | 否 | 必填 | FK到product.id；同车同商品UNIQUE |
 | quantity | INT | 否 | 1 | 购买数量，大于0 |
-| selected | TINYINT | 否 | 1 | 0未勾选、1勾选 |
-| created_at | DATETIME | 否 | NOW | 首次加入时间；合并数量不重置 |
-| updated_at | DATETIME | 否 | NOW并自动更新 | 最近修改时间 |
+| selected | SMALLINT | 否 | 1 | 0未勾选、1勾选 |
+| created_at | TIMESTAMP(0) | 否 | NOW | 首次加入时间；合并数量不重置 |
+| updated_at | TIMESTAMP(0) | 否 | NOW；业务写入同步更新 | 最近修改时间 |
 
 ### 3.6 orders 订单
 
 | 字段 | 类型 | 可空 | 默认 | 含义与约束 |
 | --- | --- | --- | --- | --- |
-| id | BIGINT UNSIGNED | 否 | AI | PK兼对外订单号 |
-| user_id | BIGINT UNSIGNED | 否 | 必填 | FK到users.id，所属USER |
+| id | NUMERIC(20,0) | 否 | AI | PK兼对外订单号 |
+| user_id | NUMERIC(20,0) | 否 | 必填 | FK到users.id，所属USER |
 | checkout_token | CHAR(32) | 否 | 必填 | 结算标识；与user_id组成UNIQUE |
 | checkout_request_hash | CHAR(64) | 否 | 必填 | 原始结算业务载荷摘要，防止同token异参 |
 | total_amount | DECIMAL(10,2) | 否 | 必填 | 应付金额，大于0且等于明细合计 |
@@ -135,20 +137,20 @@ DDL负责行内合法值、非空、主外键、唯一性和状态时间组合�
 | receiver_name | VARCHAR(50) | 否 | 必填 | 收货人快照，非空白 |
 | receiver_phone | VARCHAR(20) | 否 | 必填 | 收货电话快照，非空白 |
 | receiver_address | VARCHAR(255) | 否 | 必填 | 收货地址快照，非空白 |
-| created_at | DATETIME | 否 | NOW | 下单时间 |
-| paid_at | DATETIME | 是 | NULL | 成功支付时间，与payment.paid_at相等 |
-| shipped_at | DATETIME | 是 | NULL | 发货时间 |
-| completed_at | DATETIME | 是 | NULL | 完成时间 |
-| cancelled_at | DATETIME | 是 | NULL | 取消时间 |
-| updated_at | DATETIME | 否 | NOW并自动更新 | 最近状态更新时间 |
+| created_at | TIMESTAMP(0) | 否 | NOW | 下单时间 |
+| paid_at | TIMESTAMP(0) | 是 | NULL | 成功支付时间，与payment.paid_at相等 |
+| shipped_at | TIMESTAMP(0) | 是 | NULL | 发货时间 |
+| completed_at | TIMESTAMP(0) | 是 | NULL | 完成时间 |
+| cancelled_at | TIMESTAMP(0) | 是 | NULL | 取消时间 |
+| updated_at | TIMESTAMP(0) | 否 | NOW；业务写入同步更新 | 最近状态更新时间 |
 
 ### 3.7 order_item 订单明细
 
 | 字段 | 类型 | 可空 | 默认 | 含义与约束 |
 | --- | --- | --- | --- | --- |
-| id | BIGINT UNSIGNED | 否 | AI | 明细编号，PK |
-| order_id | BIGINT UNSIGNED | 否 | 必填 | FK到orders.id |
-| product_id | BIGINT UNSIGNED | 否 | 必填 | FK到product.id；同单同商品UNIQUE |
+| id | NUMERIC(20,0) | 否 | AI | 明细编号，PK |
+| order_id | NUMERIC(20,0) | 否 | 必填 | FK到orders.id |
+| product_id | NUMERIC(20,0) | 否 | 必填 | FK到product.id；同单同商品UNIQUE |
 | product_name | VARCHAR(100) | 否 | 必填 | 商品名称成交快照，不随商品改名 |
 | unit_price | DECIMAL(10,2) | 否 | 必填 | 下单时单价快照，大于0 |
 | quantity | INT | 否 | 必填 | 购买数量，大于0 |
@@ -159,134 +161,143 @@ DDL负责行内合法值、非空、主外键、唯一性和状态时间组合�
 
 | 字段 | 类型 | 可空 | 默认 | 含义与约束 |
 | --- | --- | --- | --- | --- |
-| id | BIGINT UNSIGNED | 否 | AI | 库存编号，PK，保留报告正式属性 |
-| product_id | BIGINT UNSIGNED | 否 | 必填 | FK到product.id，UNIQUE，每商品一份 |
+| id | NUMERIC(20,0) | 否 | AI | 库存编号，PK，保留报告正式属性 |
+| product_id | NUMERIC(20,0) | 否 | 必填 | FK到product.id，UNIQUE，每商品一份 |
 | available | INT | 否 | 0 | 当前可售数量，非负 |
-| version | BIGINT UNSIGNED | 否 | 0 | 库存乐观锁版本，库存写入递增 |
-| updated_at | DATETIME | 否 | NOW并自动更新 | 最近库存操作时间，写入时显式设置 |
+| version | NUMERIC(20,0) | 否 | 0 | 库存乐观锁版本，库存写入递增 |
+| updated_at | TIMESTAMP(0) | 否 | NOW；业务写入同步更新 | 最近库存操作时间，写入时显式设置 |
 
 ### 3.9 payment 成功支付记录
 
 | 字段 | 类型 | 可空 | 默认 | 含义与约束 |
 | --- | --- | --- | --- | --- |
-| id | BIGINT UNSIGNED | 否 | AI | 支付编号，PK |
-| order_id | BIGINT UNSIGNED | 否 | 必填 | FK到orders.id，UNIQUE |
+| id | NUMERIC(20,0) | 否 | AI | 支付编号，PK |
+| order_id | NUMERIC(20,0) | 否 | 必填 | FK到orders.id，UNIQUE |
 | amount | DECIMAL(10,2) | 否 | 必填 | 支付金额，取订单总额且大于0 |
-| paid_at | DATETIME | 否 | 必填 | 成功支付时间，与订单共同写入 |
+| paid_at | TIMESTAMP(0) | 否 | 必填 | 成功支付时间，与订单共同写入 |
 
 只存成功事实，失败不插入payment；不需要可与事实矛盾的支付状态列。
 
-## 4 MySQL 8.0 DDL
+## 4 PostgreSQL 18 DDL
 
-下列完整代码块可直接在MySQL 8.0.16及以上的**空数据库**执行。数据库名为`scu_ecommerce`；不包含DROP，不负责迁移或覆盖已有表。`SET SESSION`必须在每个应用连接建立时同样执行，不能只在建库时设置。
+下列完整代码块在PostgreSQL 18及以上的**空数据库public schema**内执行。`db.bootstrap`负责连接管理库postgres并按白名单创建scu_ecommerce或scu_ecommerce_test，再在单个DDL事务中初始化；有业务表时拒绝覆盖。连接设置由应用引擎逐连接执行，不能只在建库时设置。
 
 ```sql
-CREATE DATABASE IF NOT EXISTS scu_ecommerce
-  CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
-USE scu_ecommerce;
-SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci;
-SET SESSION time_zone = '+08:00';
-SET SESSION transaction_isolation = 'READ-COMMITTED';
-SET SESSION sql_mode = 'STRICT_TRANS_TABLES,ONLY_FULL_GROUP_BY,NO_ZERO_DATE,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION';
+SET TIME ZONE 'Asia/Shanghai';
+SET default_transaction_isolation = 'read committed';
+CREATE COLLATION app_ci (provider = icu, locale = 'und-u-ks-level1', deterministic = false);
 
+CREATE SEQUENCE users_id_seq AS BIGINT;
 CREATE TABLE users (
-  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  username VARCHAR(32) NOT NULL,
+  id NUMERIC(20,0) NOT NULL DEFAULT nextval('users_id_seq'),
+  username VARCHAR(32) COLLATE app_ci NOT NULL,
   password_hash VARCHAR(255) NOT NULL,
-  role VARCHAR(10) COLLATE utf8mb4_bin NOT NULL DEFAULT 'USER',
-  nickname VARCHAR(50) NOT NULL,
-  phone VARCHAR(20) NOT NULL,
-  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  role VARCHAR(10) COLLATE "C" NOT NULL DEFAULT 'USER',
+  nickname VARCHAR(50) COLLATE app_ci NOT NULL,
+  phone VARCHAR(20) COLLATE app_ci NOT NULL,
+  created_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL DEFAULT date_trunc('second', statement_timestamp() AT TIME ZONE 'Asia/Shanghai'),
+  updated_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL DEFAULT date_trunc('second', statement_timestamp() AT TIME ZONE 'Asia/Shanghai'),
   PRIMARY KEY (id),
-  UNIQUE KEY uk_users_username (username),
-  KEY idx_users_role_created (role, created_at, id),
+  CONSTRAINT uk_users_username UNIQUE (username),
   CONSTRAINT ck_users_username CHECK (CHAR_LENGTH(TRIM(username)) BETWEEN 3 AND 32),
   CONSTRAINT ck_users_password CHECK (CHAR_LENGTH(TRIM(password_hash)) > 0),
   CONSTRAINT ck_users_role CHECK (role IN ('USER', 'ADMIN')),
   CONSTRAINT ck_users_nickname CHECK (CHAR_LENGTH(TRIM(nickname)) > 0),
-  CONSTRAINT ck_users_phone CHECK (CHAR_LENGTH(TRIM(phone)) > 0)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+  CONSTRAINT ck_users_phone CHECK (CHAR_LENGTH(TRIM(phone)) > 0),
+  CONSTRAINT ck_users_id_range CHECK (id BETWEEN 1 AND 18446744073709551615)
+);
+ALTER SEQUENCE users_id_seq OWNED BY users.id;
 
+CREATE SEQUENCE category_id_seq AS BIGINT;
 CREATE TABLE category (
-  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  name VARCHAR(50) NOT NULL,
-  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  id NUMERIC(20,0) NOT NULL DEFAULT nextval('category_id_seq'),
+  name VARCHAR(50) COLLATE app_ci NOT NULL,
+  created_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL DEFAULT date_trunc('second', statement_timestamp() AT TIME ZONE 'Asia/Shanghai'),
+  updated_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL DEFAULT date_trunc('second', statement_timestamp() AT TIME ZONE 'Asia/Shanghai'),
   PRIMARY KEY (id),
-  UNIQUE KEY uk_category_name (name),
-  CONSTRAINT ck_category_name CHECK (CHAR_LENGTH(TRIM(name)) > 0)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+  CONSTRAINT uk_category_name UNIQUE (name),
+  CONSTRAINT ck_category_name CHECK (CHAR_LENGTH(TRIM(name)) > 0),
+  CONSTRAINT ck_category_id_range CHECK (id BETWEEN 1 AND 18446744073709551615)
+);
+ALTER SEQUENCE category_id_seq OWNED BY category.id;
 
+CREATE SEQUENCE product_id_seq AS BIGINT;
 CREATE TABLE product (
-  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  category_id BIGINT UNSIGNED NOT NULL,
-  name VARCHAR(100) NOT NULL,
+  id NUMERIC(20,0) NOT NULL DEFAULT nextval('product_id_seq'),
+  category_id NUMERIC(20,0) NOT NULL,
+  name VARCHAR(100) COLLATE app_ci NOT NULL,
   price DECIMAL(10,2) NOT NULL,
-  description TEXT NOT NULL,
-  status VARCHAR(10) COLLATE utf8mb4_bin NOT NULL DEFAULT 'OFF_SHELF',
-  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  description TEXT COLLATE app_ci NOT NULL,
+  status VARCHAR(10) COLLATE "C" NOT NULL DEFAULT 'OFF_SHELF',
+  created_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL DEFAULT date_trunc('second', statement_timestamp() AT TIME ZONE 'Asia/Shanghai'),
+  updated_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL DEFAULT date_trunc('second', statement_timestamp() AT TIME ZONE 'Asia/Shanghai'),
   PRIMARY KEY (id),
-  KEY idx_product_category_status_price (category_id, status, price, id),
-  KEY idx_product_status_price (status, price, id),
   CONSTRAINT fk_product_category FOREIGN KEY (category_id) REFERENCES category (id)
     ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT ck_product_name CHECK (CHAR_LENGTH(TRIM(name)) > 0),
   CONSTRAINT ck_product_price CHECK (price > 0),
-  CONSTRAINT ck_product_status CHECK (status IN ('ON_SHELF', 'OFF_SHELF'))
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+  CONSTRAINT ck_product_status CHECK (status IN ('ON_SHELF', 'OFF_SHELF')),
+  CONSTRAINT ck_product_id_range CHECK (id BETWEEN 1 AND 18446744073709551615),
+  CONSTRAINT ck_product_category_id_range CHECK (category_id BETWEEN 1 AND 18446744073709551615)
+);
+ALTER SEQUENCE product_id_seq OWNED BY product.id;
 
+CREATE SEQUENCE cart_id_seq AS BIGINT;
 CREATE TABLE cart (
-  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  user_id BIGINT UNSIGNED NOT NULL,
-  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  id NUMERIC(20,0) NOT NULL DEFAULT nextval('cart_id_seq'),
+  user_id NUMERIC(20,0) NOT NULL,
+  created_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL DEFAULT date_trunc('second', statement_timestamp() AT TIME ZONE 'Asia/Shanghai'),
   PRIMARY KEY (id),
-  UNIQUE KEY uk_cart_user (user_id),
+  CONSTRAINT uk_cart_user UNIQUE (user_id),
   CONSTRAINT fk_cart_user FOREIGN KEY (user_id) REFERENCES users (id)
-    ON DELETE RESTRICT ON UPDATE RESTRICT
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+    ON DELETE RESTRICT ON UPDATE RESTRICT,
+  CONSTRAINT ck_cart_id_range CHECK (id BETWEEN 1 AND 18446744073709551615),
+  CONSTRAINT ck_cart_user_id_range CHECK (user_id BETWEEN 1 AND 18446744073709551615)
+);
+ALTER SEQUENCE cart_id_seq OWNED BY cart.id;
 
+CREATE SEQUENCE cart_item_id_seq AS BIGINT;
 CREATE TABLE cart_item (
-  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  cart_id BIGINT UNSIGNED NOT NULL,
-  product_id BIGINT UNSIGNED NOT NULL,
+  id NUMERIC(20,0) NOT NULL DEFAULT nextval('cart_item_id_seq'),
+  cart_id NUMERIC(20,0) NOT NULL,
+  product_id NUMERIC(20,0) NOT NULL,
   quantity INT NOT NULL DEFAULT 1,
-  selected TINYINT NOT NULL DEFAULT 1,
-  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  selected SMALLINT NOT NULL DEFAULT 1,
+  created_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL DEFAULT date_trunc('second', statement_timestamp() AT TIME ZONE 'Asia/Shanghai'),
+  updated_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL DEFAULT date_trunc('second', statement_timestamp() AT TIME ZONE 'Asia/Shanghai'),
   PRIMARY KEY (id),
-  UNIQUE KEY uk_cart_item_product (cart_id, product_id),
-  KEY idx_cart_item_product (product_id),
+  CONSTRAINT uk_cart_item_product UNIQUE (cart_id, product_id),
   CONSTRAINT fk_cart_item_cart FOREIGN KEY (cart_id) REFERENCES cart (id)
     ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT fk_cart_item_product FOREIGN KEY (product_id) REFERENCES product (id)
     ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT ck_cart_item_quantity CHECK (quantity > 0),
-  CONSTRAINT ck_cart_item_selected CHECK (selected IN (0, 1))
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+  CONSTRAINT ck_cart_item_selected CHECK (selected IN (0, 1)),
+  CONSTRAINT ck_cart_item_id_range CHECK (id BETWEEN 1 AND 18446744073709551615),
+  CONSTRAINT ck_cart_item_cart_id_range CHECK (cart_id BETWEEN 1 AND 18446744073709551615),
+  CONSTRAINT ck_cart_item_product_id_range CHECK (product_id BETWEEN 1 AND 18446744073709551615)
+);
+ALTER SEQUENCE cart_item_id_seq OWNED BY cart_item.id;
 
+CREATE SEQUENCE orders_id_seq AS BIGINT;
 CREATE TABLE orders (
-  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  user_id BIGINT UNSIGNED NOT NULL,
-  checkout_token CHAR(32) COLLATE utf8mb4_bin NOT NULL,
-  checkout_request_hash CHAR(64) COLLATE utf8mb4_bin NOT NULL,
+  id NUMERIC(20,0) NOT NULL DEFAULT nextval('orders_id_seq'),
+  user_id NUMERIC(20,0) NOT NULL,
+  checkout_token CHAR(32) COLLATE "C" NOT NULL,
+  checkout_request_hash CHAR(64) COLLATE "C" NOT NULL,
   total_amount DECIMAL(10,2) NOT NULL,
-  status VARCHAR(12) COLLATE utf8mb4_bin NOT NULL DEFAULT 'PENDING',
-  receiver_name VARCHAR(50) NOT NULL,
-  receiver_phone VARCHAR(20) NOT NULL,
-  receiver_address VARCHAR(255) NOT NULL,
-  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  paid_at DATETIME NULL DEFAULT NULL,
-  shipped_at DATETIME NULL DEFAULT NULL,
-  completed_at DATETIME NULL DEFAULT NULL,
-  cancelled_at DATETIME NULL DEFAULT NULL,
-  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  status VARCHAR(12) COLLATE "C" NOT NULL DEFAULT 'PENDING',
+  receiver_name VARCHAR(50) COLLATE app_ci NOT NULL,
+  receiver_phone VARCHAR(20) COLLATE app_ci NOT NULL,
+  receiver_address VARCHAR(255) COLLATE app_ci NOT NULL,
+  created_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL DEFAULT date_trunc('second', statement_timestamp() AT TIME ZONE 'Asia/Shanghai'),
+  paid_at TIMESTAMP(0) WITHOUT TIME ZONE NULL DEFAULT NULL,
+  shipped_at TIMESTAMP(0) WITHOUT TIME ZONE NULL DEFAULT NULL,
+  completed_at TIMESTAMP(0) WITHOUT TIME ZONE NULL DEFAULT NULL,
+  cancelled_at TIMESTAMP(0) WITHOUT TIME ZONE NULL DEFAULT NULL,
+  updated_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL DEFAULT date_trunc('second', statement_timestamp() AT TIME ZONE 'Asia/Shanghai'),
   PRIMARY KEY (id),
-  UNIQUE KEY uk_orders_user_token (user_id, checkout_token),
-  KEY idx_orders_user_created (user_id, created_at, id),
-  KEY idx_orders_status_created (status, created_at, id),
-  KEY idx_orders_created (created_at, id),
+  CONSTRAINT uk_orders_user_token UNIQUE (user_id, checkout_token),
   CONSTRAINT fk_orders_user FOREIGN KEY (user_id) REFERENCES users (id)
     ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT ck_orders_token CHECK (CHAR_LENGTH(checkout_token) = 32),
@@ -314,53 +325,78 @@ CREATE TABLE orders (
     (shipped_at IS NULL OR shipped_at >= paid_at) AND
     (completed_at IS NULL OR completed_at >= shipped_at) AND
     (cancelled_at IS NULL OR cancelled_at >= created_at)
-  )
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+  ),
+  CONSTRAINT ck_orders_id_range CHECK (id BETWEEN 1 AND 18446744073709551615),
+  CONSTRAINT ck_orders_user_id_range CHECK (user_id BETWEEN 1 AND 18446744073709551615)
+);
+ALTER SEQUENCE orders_id_seq OWNED BY orders.id;
 
+CREATE SEQUENCE order_item_id_seq AS BIGINT;
 CREATE TABLE order_item (
-  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  order_id BIGINT UNSIGNED NOT NULL,
-  product_id BIGINT UNSIGNED NOT NULL,
-  product_name VARCHAR(100) NOT NULL,
+  id NUMERIC(20,0) NOT NULL DEFAULT nextval('order_item_id_seq'),
+  order_id NUMERIC(20,0) NOT NULL,
+  product_id NUMERIC(20,0) NOT NULL,
+  product_name VARCHAR(100) COLLATE app_ci NOT NULL,
   unit_price DECIMAL(10,2) NOT NULL,
   quantity INT NOT NULL,
   PRIMARY KEY (id),
-  UNIQUE KEY uk_order_item_product (order_id, product_id),
-  KEY idx_order_item_product_order (product_id, order_id),
+  CONSTRAINT uk_order_item_product UNIQUE (order_id, product_id),
   CONSTRAINT fk_order_item_order FOREIGN KEY (order_id) REFERENCES orders (id)
     ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT fk_order_item_product FOREIGN KEY (product_id) REFERENCES product (id)
     ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT ck_order_item_name CHECK (CHAR_LENGTH(TRIM(product_name)) > 0),
   CONSTRAINT ck_order_item_price CHECK (unit_price > 0),
-  CONSTRAINT ck_order_item_quantity CHECK (quantity > 0)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+  CONSTRAINT ck_order_item_quantity CHECK (quantity > 0),
+  CONSTRAINT ck_order_item_id_range CHECK (id BETWEEN 1 AND 18446744073709551615),
+  CONSTRAINT ck_order_item_order_id_range CHECK (order_id BETWEEN 1 AND 18446744073709551615),
+  CONSTRAINT ck_order_item_product_id_range CHECK (product_id BETWEEN 1 AND 18446744073709551615)
+);
+ALTER SEQUENCE order_item_id_seq OWNED BY order_item.id;
 
+CREATE SEQUENCE inventory_id_seq AS BIGINT;
 CREATE TABLE inventory (
-  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  product_id BIGINT UNSIGNED NOT NULL,
+  id NUMERIC(20,0) NOT NULL DEFAULT nextval('inventory_id_seq'),
+  product_id NUMERIC(20,0) NOT NULL,
   available INT NOT NULL DEFAULT 0,
-  version BIGINT UNSIGNED NOT NULL DEFAULT 0,
-  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  version NUMERIC(20,0) NOT NULL DEFAULT 0,
+  updated_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL DEFAULT date_trunc('second', statement_timestamp() AT TIME ZONE 'Asia/Shanghai'),
   PRIMARY KEY (id),
-  UNIQUE KEY uk_inventory_product (product_id),
+  CONSTRAINT uk_inventory_product UNIQUE (product_id),
   CONSTRAINT fk_inventory_product FOREIGN KEY (product_id) REFERENCES product (id)
     ON DELETE RESTRICT ON UPDATE RESTRICT,
-  CONSTRAINT ck_inventory_available CHECK (available >= 0)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+  CONSTRAINT ck_inventory_available CHECK (available >= 0),
+  CONSTRAINT ck_inventory_id_range CHECK (id BETWEEN 1 AND 18446744073709551615),
+  CONSTRAINT ck_inventory_product_id_range CHECK (product_id BETWEEN 1 AND 18446744073709551615),
+  CONSTRAINT ck_inventory_version_range CHECK (version BETWEEN 0 AND 18446744073709551615)
+);
+ALTER SEQUENCE inventory_id_seq OWNED BY inventory.id;
 
+CREATE SEQUENCE payment_id_seq AS BIGINT;
 CREATE TABLE payment (
-  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  order_id BIGINT UNSIGNED NOT NULL,
+  id NUMERIC(20,0) NOT NULL DEFAULT nextval('payment_id_seq'),
+  order_id NUMERIC(20,0) NOT NULL,
   amount DECIMAL(10,2) NOT NULL,
-  paid_at DATETIME NOT NULL,
+  paid_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL,
   PRIMARY KEY (id),
-  UNIQUE KEY uk_payment_order (order_id),
-  KEY idx_payment_paid_order (paid_at, order_id),
+  CONSTRAINT uk_payment_order UNIQUE (order_id),
   CONSTRAINT fk_payment_order FOREIGN KEY (order_id) REFERENCES orders (id)
     ON DELETE RESTRICT ON UPDATE RESTRICT,
-  CONSTRAINT ck_payment_amount CHECK (amount > 0)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+  CONSTRAINT ck_payment_amount CHECK (amount > 0),
+  CONSTRAINT ck_payment_id_range CHECK (id BETWEEN 1 AND 18446744073709551615),
+  CONSTRAINT ck_payment_order_id_range CHECK (order_id BETWEEN 1 AND 18446744073709551615)
+);
+ALTER SEQUENCE payment_id_seq OWNED BY payment.id;
+
+CREATE INDEX idx_users_role_created ON users (role, created_at, id);
+CREATE INDEX idx_product_category_status_price ON product (category_id, status, price, id);
+CREATE INDEX idx_product_status_price ON product (status, price, id);
+CREATE INDEX idx_cart_item_product ON cart_item (product_id);
+CREATE INDEX idx_orders_user_created ON orders (user_id, created_at, id);
+CREATE INDEX idx_orders_status_created ON orders (status, created_at, id);
+CREATE INDEX idx_orders_created ON orders (created_at, id);
+CREATE INDEX idx_order_item_product_order ON order_item (product_id, order_id);
+CREATE INDEX idx_payment_paid_order ON payment (paid_at, order_id);
 ```
 
 ### 4.1 索引使用与删除策略
@@ -375,7 +411,7 @@ CREATE TABLE payment (
 | cart_item | 用户可删除本人条目；结算仅删除本次条目，不级联删容器 |
 | orders、order_item、payment | 保留历史，不提供普通物理删除；取消只改状态；全部FK RESTRICT防止误删 |
 
-全部外键`ON UPDATE RESTRICT`，主键创建后不可改。商品删除先锁商品、再锁库存并检查零量和引用，不通过则整笔回滚；FK再兜底并发引用。不能用CASCADE隐藏删除历史，不能临时关闭`FOREIGN_KEY_CHECKS`绕过限制。
+全部外键`ON UPDATE RESTRICT`，主键创建后不可改。商品删除先锁商品、再锁库存并检查零量和引用，不通过则整笔回滚；FK再兜底并发引用。不能用CASCADE隐藏删除历史，不能禁用外键或完整性约束绕过限制。
 
 ### 4.2 报告2.3属性覆盖
 
@@ -397,7 +433,7 @@ CREATE TABLE payment (
 
 ### 5.1 隔离级别和加锁顺序
 
-采用InnoDB `READ COMMITTED`。业务判断所依赖的订单、商品和库存通过锁定读取得最新值；不依赖普通快照读抵御超卖。一次事务只处理一个购物车或一个现有订单，禁止任意批量混锁。
+采用PostgreSQL `READ COMMITTED`。业务判断所依赖的订单、商品和库存通过锁定读取得最新值；不依赖普通快照读抵御超卖。一次事务只处理一个购物车或一个现有订单，禁止任意批量混锁。
 
 | 路径 | 固定顺序 |
 | --- | --- |
@@ -416,15 +452,15 @@ CREATE TABLE payment (
 
 ```sql
 UPDATE inventory
-SET available = available - ?, version = version + 1, updated_at = NOW()
-WHERE product_id = ? AND version = ? AND available >= ?;
+SET available = available - :q, version = version + 1, updated_at = :now
+WHERE product_id = :product_id AND version = :old_version AND available >= :q;
 ```
 
-绑定顺序为`q, product_id, old_version, q`。受影响行数必须为1，否则整单回滚。取消用`available = available + q`并检查上界；补货同样做加法；盘点在版本相等时计算delta后用`available = available + delta`。每个写入都携带`WHERE version=old_version`，不得无条件覆盖。
+通过SQLAlchemy绑定q、product_id、old_version及本次取得的now。受影响行数必须为1，否则整单回滚。取消用`available = available + q`并检查上界；补货同样做加法；盘点在版本相等时计算delta后用`available = available + delta`。每个写入都携带`WHERE version=old_version`，不得无条件覆盖。
 
 ### 5.3 死锁与重试
 
-固定顺序减少死锁，不能消除InnoDB外键、唯一键检查带来的所有等待。MySQL 1213死锁、1205锁等待超时均显式回滚**整个事务**，释放全部锁后重读并重试；最多3次总尝试，重试前分别等待约50ms、150ms并加入0至50ms随机抖动。不在持锁期间等待，不只重跑失败SQL。
+固定顺序减少死锁，不能消除外键、唯一键检查带来的所有等待。PostgreSQL SQLSTATE 40P01死锁、55P03锁等待超时及40001序列化失败均显式回滚**整个事务**，释放全部锁后重读并重试；最多3次总尝试，重试前分别等待约50ms、150ms并加入0至50ms随机抖动。不在持锁期间等待，不只重跑失败SQL。
 
 结算自动重试沿用同token、同载荷；取消、支付沿用同订单。管理员维护重试仍携带原expected_version，若已变化就转409供人工刷新，不悄悄采纳新版本。库存不足、非法状态、版本冲突、金额超界、格式错误不自动重试。三次仍失败返回503 `TRANSACTION_RETRY_EXHAUSTED`，不泄露SQL细节。连接在COMMIT时断开属于结果未知，必须新连接先核对token或订单/支付状态后再决定重试，不能假设未提交。
 
@@ -469,7 +505,7 @@ checkout(current_user, token, items[id, expected_quantity], receiver):
   再按相同顺序逐个SELECT inventory WHERE product_id=? FOR UPDATE
   检查商品全部上架、库存记录齐全、available>=购买数
   使用数据库现价及名称构建快照，Decimal求和，验证总额范围
-  now = 数据库NOW()
+  now = 数据库STATEMENT_LOCAL_TIME()
   INSERT orders(user_id, token, request_hash, total_amount, PENDING, receiver, created_at=now)
   取得自增id，作为对外订单号
   对每个商品：
@@ -481,7 +517,7 @@ checkout(current_user, token, items[id, expected_quantity], receiver):
   DELETE本车本次已结算条目，未勾选条目保留；核对删除数量
   COMMIT；返回201（新订单、明细、应付金额、PENDING）
   任意失败：ROLLBACK；订单、token、明细、扣库、购物车清理一并撤销
-  若uk_orders_user_token出现1062：ROLLBACK后新事务查询原单并比较摘要
+  若uk_orders_user_token出现23505：ROLLBACK后新事务查询原单并比较摘要
 ```
 
 同token返回原单的分支不再申请已有订单的排他锁；第一个结算提交已持久化完整订单，后续取消/支付可以独立推进状态。返回状态表示本次读取时状态。其他非token唯一冲突、引用缺失和金额不一致均报错回滚，不伪装成重复成功。
@@ -498,7 +534,7 @@ cancel(current_user, order_id):
   若非PENDING：ROLLBACK，409 ORDER_STATE_CONFLICT
   读取不可变的order_item，要求非空
   按product_id升序逐个锁inventory，核对存在及available+quantity不超INT上界
-  now = GREATEST(数据库NOW(), order.created_at)
+  now = GREATEST(数据库STATEMENT_LOCAL_TIME(), order.created_at)
   对每项按读取版本UPDATE inventory：available加原数量、version加1、updated_at=now
   每项要求affected_rows=1
   UPDATE orders SET status=CANCELLED, cancelled_at=now, updated_at=now
@@ -522,7 +558,7 @@ pay(current_user, order_id, simulate_result):
   要求PENDING且无payment，否则ROLLBACK并报完整性错误
   若simulate_result=FAILURE：结束事务，返回200 result=FAILURE，订单仍PENDING
   amount = order.total_amount（不接受客户端金额）
-  now = GREATEST(数据库NOW(), order.created_at)
+  now = GREATEST(数据库STATEMENT_LOCAL_TIME(), order.created_at)
   INSERT payment(order_id, amount, paid_at=now)
   UPDATE orders SET status=PAID, paid_at=now, updated_at=now
     WHERE id=order_id AND status=PENDING
@@ -531,23 +567,19 @@ pay(current_user, order_id, simulate_result):
   任意失败：ROLLBACK，不能只留下payment或只留下PAID状态
 ```
 
-支付和取消争用同一订单行锁，先提交者决定后续分支。支付成功后取消失败，取消成功后支付失败。唯一支付索引是额外保护；若payment唯一冲突且订单仍为PENDING，属于数据不一致，不能仅捕获1062并报支付成功。
+支付和取消争用同一订单行锁，先提交者决定后续分支。支付成功后取消失败，取消成功后支付失败。唯一支付索引是额外保护；若payment唯一冲突且订单仍为PENDING，属于数据不一致，不能仅捕获23505并报支付成功。
 
-发货与收货沿用同一订单锁；管理员仅PAID时设置SHIPPED及`shipped_at=max(NOW(), paid_at)`，所属用户仅SHIPPED时设置COMPLETED及`completed_at=max(NOW(), shipped_at)`；均不改库存，不调用模拟支付。
+发货与收货沿用同一订单锁；管理员仅PAID时设置SHIPPED及`shipped_at=max(STATEMENT_LOCAL_TIME(), paid_at)`，所属用户仅SHIPPED时设置COMPLETED及`completed_at=max(STATEMENT_LOCAL_TIME(), shipped_at)`；均不改库存，不调用模拟支付。
 
 ## 8 四条查询SQL
 
-以下每个代码块可在DDL创建的库中执行，示例用MySQL会话变量设置参数；实际接口使用驱动绑定参数。时间均为Asia/Shanghai，统一`[start_at, end_at)`；校验起点小于终点。普通用户的user_id由身份注入，不能直接相信URL参数。四条查询均与报告2.5一致。
+以下代码块与db/queries的参数化SQL一致，经SQLAlchemy text绑定冒号参数执行；db/query_plan.py提供只读运行和计划检查入口，不使用会话变量。时间均为Asia/Shanghai，统一`[start_at, end_at)`；校验起点小于终点。普通用户的user_id由身份注入，不能直接相信URL参数。四条查询均与报告2.5一致。
 
 ### 8.1 Q1 用户订单及明细
 
 按下单时间筛选，包括待支付、已取消和已支付后续状态。输出粒度为一条订单明细，订单头和支付列会在多明细行重复显示，但不在这个结果上累计销售金额。使用LEFT JOIN支付保留无支付订单。普通用户强制本人；管理员可指定用户，`@user_id=NULL`表示全部用户；状态为NULL表示不限。
 
 ```sql
-SET @user_id = 2;
-SET @status = NULL;
-SET @start_at = '2026-01-01 00:00:00';
-SET @end_at = '2027-01-01 00:00:00';
 SELECT o.id AS order_id, o.user_id, u.username,
        o.status, o.created_at, o.total_amount,
        o.receiver_name, o.receiver_phone, o.receiver_address,
@@ -559,29 +591,27 @@ FROM orders AS o
 JOIN users AS u ON u.id = o.user_id
 JOIN order_item AS oi ON oi.order_id = o.id
 LEFT JOIN payment AS p ON p.order_id = o.id
-WHERE (@user_id IS NULL OR o.user_id = @user_id)
-  AND (@status IS NULL OR o.status = @status)
-  AND o.created_at >= @start_at AND o.created_at < @end_at
+WHERE (CAST(:user_id AS NUMERIC(20,0)) IS NULL OR o.user_id = CAST(:user_id AS NUMERIC(20,0)))
+  AND (CAST(:status AS VARCHAR(12)) IS NULL OR o.status = CAST(:status AS VARCHAR(12)))
+  AND o.created_at >= :start_at AND o.created_at < :end_at
 ORDER BY o.created_at DESC, o.id DESC, oi.id ASC;
 ```
 
-订单列表接口分页以orders为单位：先按相同过滤选一页订单ID，再取这些订单的全部明细并组装嵌套对象；不能在Q1的明细行上直接LIMIT造成一单被切断。需要某用户全部历史时，用其注册时刻作为起点、查询时刻的下一秒作为终点以覆盖DATETIME秒级记录，或在绑定SQL中同时省略时间条件；并保留本人限制。
+订单列表接口分页以orders为单位：先按相同过滤选一页订单ID，再取这些订单的全部明细并组装嵌套对象；不能在Q1的明细行上直接LIMIT造成一单被切断。需要某用户全部历史时，用其注册时刻作为起点、查询时刻的下一秒作为终点以覆盖TIMESTAMP(0)秒级记录，或在绑定SQL中同时省略时间条件；并保留本人限制。
 
 ### 8.2 Q2 月度销售额及已支付订单量
 
 按唯一成功支付时间筛选并归月，订单处于PAID、SHIPPED、COMPLETED均计入。关联后仍为一订单一行，禁止关联明细再SUM订单金额，也不能用SUM(DISTINCT total_amount)补救（不同订单可能同金额）。
 
 ```sql
-SET @start_at = '2026-01-01 00:00:00';
-SET @end_at = '2027-01-01 00:00:00';
-SELECT DATE_FORMAT(p.paid_at, '%Y-%m') AS sales_month,
+SELECT to_char(p.paid_at, 'YYYY-MM') AS sales_month,
        SUM(o.total_amount) AS sales_amount,
        COUNT(*) AS paid_order_count
 FROM payment AS p
 JOIN orders AS o ON o.id = p.order_id
-WHERE p.paid_at >= @start_at AND p.paid_at < @end_at
+WHERE p.paid_at >= :start_at AND p.paid_at < :end_at
   AND o.status IN ('PAID', 'SHIPPED', 'COMPLETED')
-GROUP BY DATE_FORMAT(p.paid_at, '%Y-%m')
+GROUP BY to_char(p.paid_at, 'YYYY-MM')
 ORDER BY sales_month ASC;
 ```
 
@@ -592,15 +622,13 @@ ORDER BY sales_month ASC;
 按product_id归并历史数量，用当前商品名称作展示；订单详情仍用历史快照。商品改名、下架均不改变历史归并。销量为件数，不是订单数；并列按商品编号升序，最多10行，不使用“并列全入选”。
 
 ```sql
-SET @start_at = '2026-11-01 00:00:00';
-SET @end_at = '2026-12-01 00:00:00';
 SELECT oi.product_id, pr.name AS product_name,
        SUM(oi.quantity) AS sold_quantity
 FROM payment AS p
 JOIN orders AS o ON o.id = p.order_id
 JOIN order_item AS oi ON oi.order_id = o.id
 JOIN product AS pr ON pr.id = oi.product_id
-WHERE p.paid_at >= @start_at AND p.paid_at < @end_at
+WHERE p.paid_at >= :start_at AND p.paid_at < :end_at
   AND o.status IN ('PAID', 'SHIPPED', 'COMPLETED')
 GROUP BY oi.product_id, pr.name
 ORDER BY sold_quantity DESC, oi.product_id ASC
@@ -609,20 +637,19 @@ LIMIT 10;
 
 ### 8.4 Q4 近30天未下单的普通用户
 
-固定一个查询时刻`as_of`，窗口为`[as_of - INTERVAL 30 DAY, as_of)`，包括恰在下界创建的订单，不包括恰在上界创建的订单。任何状态的订单都算曾下单，包含随后取消者；支付时间无关。含从未下单者，排除管理员及查询时刻之后才注册者。
+固定一个查询时刻`as_of`，窗口为`[as_of - INTERVAL '30 days', as_of)`，包括恰在下界创建的订单，不包括恰在上界创建的订单。任何状态的订单都算曾下单，包含随后取消者；支付时间无关。含从未下单者，排除管理员及查询时刻之后才注册者。
 
 ```sql
-SET @as_of = '2026-11-13 22:00:00';
 SELECT u.id AS user_id, u.username, u.nickname, u.phone, u.created_at
 FROM users AS u
 WHERE u.role = 'USER'
-  AND u.created_at <= @as_of
+  AND u.created_at <= CAST(:as_of AS TIMESTAMP)
   AND NOT EXISTS (
     SELECT 1
     FROM orders AS o
     WHERE o.user_id = u.id
-      AND o.created_at >= @as_of - INTERVAL 30 DAY
-      AND o.created_at < @as_of
+      AND o.created_at >= CAST(:as_of AS TIMESTAMP) - INTERVAL '30 days'
+      AND o.created_at < CAST(:as_of AS TIMESTAMP)
   )
 ORDER BY u.id ASC;
 ```
@@ -768,17 +795,9 @@ items是本人购物车全部勾选条目及预期数量；拒绝重复ID、漏�
 7. 近30天创建后取消的订单仍排除该用户；从未下单者入选；下界订单算窗口内，上界不算；管理员永不入选。
 8. 注册和创建商品的第二步失败分别回滚用户/购物车、商品/库存；商品有历史明细、当前购物车引用或非零库存均不可物理删除。
 
-### 10.1 本次设计文档的SQL核验
+### 10.1 当前实现核验
 
-2026年11月13日在本机MySQL Community Server 8.0.40上，以临时数据目录、独立端口和独立实例执行本设计DDL；未启动或修改机器原有MySQL80服务，未向现有业务库导入数据。DDL及四条空库查询全部执行成功。另完成46项样例、约束及数据库结构检查，核对结果如下：
-
-- 多明细、同金额的两张80.00订单，以及一张含10种商品、金额200.00的已发货订单，11月合计360.00、已支付订单量3；9月和12月支付分别归属各自月份，11月末下单而12月初支付不进入11月。
-- 前10销量结果按商品ID归并，商品改名不拆分；第一商品4件、第二商品2件，其余并列1件按ID取至第10号，不多纳入并列商品。
-- 普通用户订单查询保留待支付及取消订单；近30天查询包含从未下单、仅历史订单、仅上界订单者，排除窗口内已取消订单用户、恰在下界下单者、管理员及未来注册者。
-- 用户名、分类、购物车、明细、库存、结算标识和成功支付的唯一约束，正价正量、非负库存、状态时间组合、事件先后、数值上界、外键和删除保护均按预期拒绝非法SQL。事务中先改库存再触发失败，连接退出回滚后库存及version保持原值。
-- 九张表均为InnoDB及utf8mb4；样例订单总额与明细和一致，成功支付金额与时间同订单一致。
-
-以上只验证文档所含DDL、查询和数据库约束，不代表接口、并发业务流程或前后端已经实现。第10节列出的应用事务验收仍需在后续编码后完成。
+本次迁移使用独立PostgreSQL 18实例，保留九张业务表和既有接口。原数据库设计阶段的实测记录保存在PROJECT_LOG历史条目中，不改写为PostgreSQL结果。当前测试涵盖真实行锁/死锁/锁超时、事务回滚与提交失联、四条统计查询、分页语句快照、ICU文本语义及大整数序列化；实际命令、通过数量和查询计划见docs/04及日志最新记录。
 
 ## 11 交接结论
 
